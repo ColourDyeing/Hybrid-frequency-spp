@@ -1,0 +1,119 @@
+# Build artifacts
+*.o
+*.d
+*.a
+*.obs
+*.ini
+*.local
+Release
+Release_Build
+Debug
+Debug_Build
+__history
+__astcache
+
+# CMake files
+CMakeLists.txt.user
+_deps
+CMakeUserPresets.json
+**/cmake-build-debug
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/install_manifest.txt
+**/CMakeFiles/
+**/CTestTestfile.cmake
+**/Makefile
+**/*.cbp
+**/CMakeScripts
+**/compile_commands.json
+CPackConfig.cmake
+CPackSourceConfig.cmake
+build/
+
+# QT
+.qt/
+.lupdate/
+
+# Compilation results
+util/gencrc/gencrc
+util/gencrc/genmsk
+util/gencrc/genxor
+util/rnx2rtcm/rnx2rtcm
+util/simobs/gcc/simobs
+
+# gets created by qmake
+*.qmake.stash
+/app/qtapp/Makefile
+/src/Makefile
+
+# Deployment files
+app/qtapp/packaging/packages/**.exe
+app/qtapp/packaging/packages/*/data
+app/qtapp/packaging/packages/com.rtklib/meta/license.txt
+app/qtapp/packaging/packages/RtkLibInstaller.exe
+
+# RTKLIB-PRO: build output
+out/build/
+out/build/*
+
+# RTKLIB-PRO: lib build output
+lib/openblas/libopenblas.a
+lib/openblas/mklib.bat
+
+# RTKLIB-PRO: binaries (generated)
+bin/gitignore
+bin/readme.txt
+
+# RTKLIB-PRO: data that is auto-downloaded
+RTKLIB-PRO/data/rtklib-nav.dat
+RTKLIB-PRO/data/sp3/*
+RTKLIB-PRO/data/clk/*
+RTKLIB-PRO/data/ion/*
+RTKLIB-PRO/data/atx/*
+RTKLIB-PRO/data/igs/*
+RTKLIB-PRO/data/gal/*
+
+# Testing-Data: large data files (raw GNSS observations)
+Testing-Data/data/train/
+Testing-Data/data/train0/
+Testing-Data/data/train_out/
+Testing-Data/data/test/
+Testing-Data/data/picture/
+Testing-Data/data/report/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+venv/
+.venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.db
+*.db-shm
+*.db-wal
+*.ipch
+*.ilk
+*.pdb
+*.idb
+*.ipynb_checkpoints
