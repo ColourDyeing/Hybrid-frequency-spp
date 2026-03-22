@@ -1,6 +1,6 @@
 # Hybrid-frequency-SPP
 
-基于 RTKLIB-PRO 的多频点单点定位（SPP）研究项目，包含改进的 RTKLIB 源码、数据处理脚本及实验配置。
+基于 RTKLIB-EXP 的多频点单点定位（SPP）研究项目，包含改进的 RTKLIB 源码、数据处理脚本及实验配置。
 
 ## 项目结构
 
