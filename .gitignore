@@ -117,3 +117,9 @@ Thumbs.db
 *.pdb
 *.idb
 *.ipynb_checkpoints
+
+# GitHub copilot instructions
+RTKLIB-PRO/app/consapp/rnx2rtkp/msc/.github/
+
+# MSC project files
+RTKLIB-PRO/app/consapp/rnx2rtkp/msc/*.vcxproj
