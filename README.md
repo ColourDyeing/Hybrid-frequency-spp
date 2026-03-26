@@ -32,7 +32,7 @@ Hybrid-frequency-SPP/
 
 ## RTKLIB-PRO 简介
 
-RTKLIB-PRO 是针对低成本 GNSS 接收机（单频、双频或三频，尤其 u-blox 接收机和 Android 手机）优化的 RTKLIB 版本，基于 RTKLIB 2.4.3 开发。
+RTKLIB-PRO 是针对低成本 GNSS 接收机（单频、双频或三频，尤其 u-blox 接收机和 Android 手机）优化的 RTKLIB 版本，基于 RTKLIB 2.5.0 开发。
 
 **主要特性：**
 
