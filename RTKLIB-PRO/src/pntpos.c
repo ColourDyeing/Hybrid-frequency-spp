@@ -227,7 +227,7 @@ extern int ionocorr(gtime_t time, const nav_t *nav, int sat, const double *pos,
           azel[1]*R2D);
     
     /* SBAS ionosphere model */
-    if (ionoopt==IONOOPT_SBAS) {
+    if (ionoopt==IONOOPT_SBAS) {    
         if (sbsioncorr(time,nav,pos,azel,ion,var)) return 1;
         err=1;
     }
@@ -297,7 +297,7 @@ extern int tropcorr(gtime_t time, const nav_t *nav, const double *pos,
     double   *vare     I   卫星位置和钟差的协方差 (m^2)
     int      *svh      I   卫星健康标志 (-1:correction not available)
     nav_t    *nav      I   导航数据
-    double   *x        I   本次迭代开始之前的定位值,4*1,前3个是本次迭代开始之前的定位值，第4个是钟差，后三个分别是gps系统与glonass、galileo、bds系统的钟差。
+    double   *x        I   本次迭代开始之前的定位值,7*1,前3个是本次迭代开始之前的定位值，第4个是钟差，后三个分别是gps系统与glonass、galileo、bds系统的钟差。
     prcopt_t *opt      I   处理过程选项
     ssat_t   *ssat     I   卫星状态
     double   *v        O   定位方程的右端部分，伪距残差
@@ -317,7 +317,7 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
 {
     gtime_t time;
     double r,freq,dion=0.0,dtrp=0.0,vmeas,vion=0.0,vtrp=0.0,rr[3],pos[3],dtr,e[3],P;
-    int i,j,nv=0,sat,sys,mask[NX-3]={0};
+	int i, j, nv = 0, sat, sys, mask[NX - 3] = { 0 }; // nv表示有效观测数（计数器）；mask数组用于标记不同导航系统的时间偏差是否被处理过
 
     //将之前得到的定位解信息赋值给 rr 和 dtr 数组，以进行关于当前解的伪距残差的相关计算
     for (i=0;i<3;i++) rr[i]=x[i];
@@ -328,7 +328,7 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
     
     //遍历当前历元所有OBS[] 
     for (i=*ns=0;i<n&&i<MAXOBS;i++) {
-        vsat[i]=0; azel[i*2]=azel[1+i*2]=resp[i]=0.0; // 将vsat、azel和resp数组置 0，因为在前后两次定位结果中，每颗卫星的上述信息都会发生变化。
+        vsat[i]=0; azel[i*2]=azel[1+i*2]=resp[i]=0.0; // 初始化，因为在前后两次定位结果中，每颗卫星的上述信息都会发生变化。
         time=obs[i].time; // time赋值OBS的时间
         sat=obs[i].sat; // sat赋值OBS的卫星
         if (!(sys=satsys(sat,NULL))) continue; //1.调用satsys()函数，验证卫星编号是否合理，查找其所属的导航系统
@@ -357,8 +357,8 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
             }
             if ((freq=sat2freq(sat,obs[i].code[0],nav))==0.0) continue;
             // 频率转换（从L1频段转换为其他频段）
-            dion*=SQR(FREQL1/freq); // 电离层改正量
-            vion*=SQR(SQR(FREQL1/freq)); // 电离层改正误差
+            dion*=SQR(FREQL1/freq); // 电离层改正延迟(m)
+            vion*=SQR(SQR(FREQL1/freq)); // 电离层改正误差(m^2)
         
             /* 7.对流层校正 */
             if (!tropcorr(time,nav,pos,azel+i*2,opt->tropopt,&dtrp,&vtrp)) {
@@ -369,16 +369,16 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
         if ((P=prange(obs+i,nav,opt,&vmeas))==0.0) continue;
         
         /* 9.计算此时伪距残差，累加测距误差(URE) */
-        // 计算伪距残差(P-(r+c*dtr-c*dts+I+T))
+        // 计算伪距残差(P-(r+c*dtr-c*dts+I+T)),程序中dtr单位为m
         v[nv]=P-(r+dtr-CLIGHT*dts[i*2]+dion+dtrp);
         trace(4,"sat=%d: v=%.3f P=%.3f r=%.3f dtr=%.6f dts=%.6f dion=%.3f dtrp=%.3f\n",
             sat,v[nv],P,r,dtr,dts[i*2],dion,dtrp);
        
-        // 设计矩阵
+        // 10.设计矩阵
         for (j=0;j<NX;j++) {
-            H[j+nv*NX]=j<3?-e[j]:(j==3?1.0:0.0);
+            H[j+nv*NX]=j<3?-e[j]:(j==3?1.0:0.0); // 前3列是坐标改正数（赋卫星与接收机之间的单位矢量），第四列是GPS钟差（赋1），后面是不同导航系统之间的时间偏差（赋初值0）
         }
-        // 处理不同导航系统之间的时间偏差，修改矩阵 H
+        // 处理不同导航系统之间的时间偏差（校正伪距残差，即减去与基准GPS的接收机钟差），修改矩阵 H
         if      (sys==SYS_GLO) {v[nv]-=x[4]; H[4+nv*NX]=1.0; mask[1]=1;}
         else if (sys==SYS_GAL) {v[nv]-=x[5]; H[5+nv*NX]=1.0; mask[2]=1;}
         else if (sys==SYS_CMP) {v[nv]-=x[6]; H[6+nv*NX]=1.0; mask[3]=1;}
@@ -386,11 +386,11 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
 #ifdef QZSDT
         else if (sys==SYS_QZS) {v[nv]-=x[8]; H[8+nv*NX]=1.0; mask[5]=1;}
 #endif
-        else mask[0]=1;
+        else mask[0]=1; // GPS
 
         vsat[i]=1; resp[i]=v[nv]; (*ns)++;
         
-        // 累加计算用户测距误差(URE)
+        // 11.累加计算用户测距误差(电离层，对流层，DCB等)，随机模型定权
         var[nv]=vare[i]+vmeas+vion+vtrp;
         if (ssat)
             var[nv++]+=varerr(opt,&ssat[i],&obs[i],azel[1+i*2],sys);
@@ -399,14 +399,14 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
         trace(4,"sat=%2d azel=%5.1f %4.1f res=%7.3f sig=%5.3f\n",obs[i].sat,
               azel[i*2]*R2D,azel[1+i*2]*R2D,resp[i],sqrt(var[nv-1]));
     }
-    // 为防止不满秩，将矩阵H补满秩
+    // 为防止不满秩，检查是否有缺失的导航系统，若有进行下述处理，以防止矩阵H秩亏
     for (i=0;i<NX-3;i++) {
-        if (mask[i]) continue;
-        v[nv]=0.0;
-        for (j=0;j<NX;j++) H[j+nv*NX]=j==i+3?1.0:0.0;
+		if (mask[i]) continue; // 表示该导航系统的时间偏差已经被处理过了（有该系统），跳过
+        v[nv]=0.0; // 否则就（新增一个观测方程）伪距残差设置为0，设计矩阵设置为1，方差设置为0.01以补满秩
+        for (j=0;j<NX;j++) H[j+nv*NX]=j==i+3?1.0:0.0; // 新增的方程代表的意思就是接收机的这个导航系统钟差为0
         var[nv++]=0.01;
     }
-    return nv;
+	return nv; // 返回有效观测数
 }
 /* 对定位结果进行卡方检验和GDOP检验---------------------------------------------------------
     const double   *azel     方位角、高度角
@@ -474,7 +474,8 @@ static int estpos(const obsd_t *obs, int n, const double *rs, const double *dts,
     
     trace(3,"estpos  : n=%d\n",n);
     
-    v=mat(n+NX-3,1); H=mat(NX,n+NX-3); var=mat(n+NX-3,1);
+    v=mat(n+NX-3,1); H=mat(NX,n+NX-3); var=mat(n+NX-3,1); // 分配内存，长度为n+NX-3，是因为在rescode函数中，如果参与定位的卫星系统个数小于待估计系统钟差参数个数
+                                                          // （各个卫星系统的接收机钟差都是待估参数，但不一定都有数据），则需要补满秩，用于补满秩的方程个数为NX-3
     
     for (i=0;i<3;i++) x[i]=sol->rr[i]; // 初始化接收机位置（将上一历元的位置作为初值，若初次则赋为0）
 
@@ -505,7 +506,7 @@ static int estpos(const obsd_t *obs, int n, const double *rs, const double *dts,
         for (j=0;j<NX;j++) { // 更新估计参数
             x[j]+=dx[j];
         }
-        // 如果求得的修改量dx小于截断因子(目前是1E-4)，则将x[j]作为最终的定位结果，
+        // 如果求得的待估参数变化量小于截断因子(目前是1E-4)，则将x[j]作为最终的定位结果，
         // 对 sol 的相应参数赋值,之后再调用 valsol 函数确认当前解是否符合要求,参考 RTKLIB Manual P162
         // 否则，进行下一次循环。
         if (norm(dx,NX)<1E-4) {
@@ -749,7 +750,7 @@ extern int pntpos(const obsd_t *obs, int n, const nav_t *nav,
             ssat[obs[i].sat-1].snr_rover[0]=obs[i].SNR[0];
     }
     
-    if (opt_.mode!=PMODE_SINGLE) { /* for precise positioning */ //如果处理选项不是SPP
+    if (opt_.mode!=PMODE_SINGLE) { //如果处理选项不是SPP
         opt_.ionoopt=IONOOPT_BRDC; //电离层矫正选Klobuchar广播星历模型
         opt_.tropopt=TROPOPT_SAAS; //对流层矫正采用Saastmoinen模型
     }
