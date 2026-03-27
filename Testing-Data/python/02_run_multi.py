@@ -16,11 +16,11 @@ import io
 
 # 设置输入数据集的位置，以及解算结果文件
 DATA_SET = 'train'       # 选择数据文件夹
-SOL_TAG = 'spp-brdc'          # 定位解决方案
+SOL_TAG = 'spp-uduc'          # 定位解决方案
 datapath = '../data/'    # 相对python脚本的路径
 
 # 设置二进制文件和配置文件, 相对python脚本的路径
-binpath_rtklib  = "../rtklib/rnx2rtkp.exe"
+binpath_rtklib  = "../rtklib/rnx2rtkp-uduc.exe"
 cfgfile_rtklib = "../config/Hybrid-frequency-spp.conf"
 
 # 设置解算选项
