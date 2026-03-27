@@ -74,9 +74,11 @@ RTKLIB-PRO/data/igs/*
 RTKLIB-PRO/data/gal/*
 
 # Testing-Data: large data files (raw GNSS observations)
+Testing-Data/data/
 Testing-Data/data/train/
 Testing-Data/data/train0/
 Testing-Data/data/train_out/
+Testing-Data/data/train_error/
 Testing-Data/data/test/
 Testing-Data/data/picture/
 Testing-Data/data/report/
