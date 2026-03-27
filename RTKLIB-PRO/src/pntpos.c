@@ -110,9 +110,7 @@ static int snrmask(const obsd_t *obs, const double *azel, const prcopt_t *opt)
     }
     if (opt->ionoopt==IONOOPT_IFLC) {
         f2=seliflc(opt->nf,satsys(obs->sat,NULL));
-        /* 只在第二频点观测值存在时才检查其SNR门限，避免E5a/L2缺失导致卫星被误拒 */
-        if (f2>=0 && obs->SNR[f2]>0.0 &&
-            testsnr(0,f2,azel[1],obs->SNR[f2],&opt->snrmask)) return 0;
+        if (testsnr(0,f2,azel[1],obs->SNR[f2],&opt->snrmask)) return 0;
     }
     return 1;
 }
@@ -130,30 +128,23 @@ static double prange(const obsd_t *obs, const nav_t *nav, const prcopt_t *opt,
     f2=seliflc(opt->nf,satsys(obs->sat,NULL));
     P2=obs->P[f2];
     *var=0.0;
-
-    if (P1==0.0) return 0.0; /* UDUC混合机制: 只要求P1存在即可 */
-
+    
+    if (P1==0.0||(opt->ionoopt==IONOOPT_IFLC&&P2==0.0)) return 0.0;
     bias_ix=code2bias_ix(sys,obs->code[0]);  /* L1 code bias */
     if (bias_ix>0) { /* 0=ref code */
         P1+=nav->cbias[sat-1][0][bias_ix-1];
     }
-
-    int use_iflc = (opt->ionoopt==IONOOPT_IFLC && P2!=0.0);
-
-    if (use_iflc) {
-        /* GPS code biases are L1/L2, Galileo are L1/L5 */
-        if (sys==SYS_GAL&&f2==1) {
-            /* skip code bias, no GAL L2 bias available */
-        }
-        else {  /* apply L2 or L5 code bias */
-            bias_ix=code2bias_ix(sys,obs->code[f2]);
-            if (bias_ix>0) { /* 0=ref code */
-                P2+=nav->cbias[sat-1][1][bias_ix-1]; /* L2 or L5 code bias */
-            }
+    /* GPS code biases are L1/L2, Galileo are L1/L5 */
+    if (sys==SYS_GAL&&f2==1) {
+        /* skip code bias, no GAL L2 bias available */
+    }
+    else {  /* apply L2 or L5 code bias */
+        bias_ix=code2bias_ix(sys,obs->code[f2]);
+        if (bias_ix>0) { /* 0=ref code */
+            P2+=nav->cbias[sat-1][1][bias_ix-1]; /* L2 or L5 code bias */
         }
     }
-
-    if (use_iflc) { /* dual-frequency */
+    if (opt->ionoopt==IONOOPT_IFLC) { /* dual-frequency */
         
         if (sys==SYS_GPS||sys==SYS_QZS) { /* L1-L2 or L1-L5 */
             gamma=f2==1?SQR(FREQL1/FREQL2):SQR(FREQL1/FREQL5);
@@ -185,28 +176,31 @@ static double prange(const obsd_t *obs, const nav_t *nav, const prcopt_t *opt,
     }
     else { /* single-freq (L1/E1/B1) */
         *var=SQR(ERR_CBIAS);
-
+        
         if (sys==SYS_GPS||sys==SYS_QZS) { /* L1 */
-            /* prange返回原始P1，Klobuchar电离层改正统一由rescode处理 */
-            return P1;
+            b1=gettgd(sat,nav,0); /* TGD (m) */
+            return P1-b1;
         }
         else if (sys==SYS_GLO) { /* G1 */
-            /* GLONASS G1: 群延迟改正在此处理，TGD项不在Klobuchar中 */
             gamma=SQR(FREQ1_GLO/FREQ2_GLO);
             b1=gettgd(sat,nav,0); /* -dtaun (m) */
             return P1-b1/(gamma-1.0);
         }
         else if (sys==SYS_GAL) { /* E1 */
-            /* prange返回原始P1，Klobuchar电离层改正统一由rescode处理 */
-            return P1;
+            if (getseleph(SYS_GAL)) b1=gettgd(sat,nav,0); /* BGD_E1E5a */
+            else                    b1=gettgd(sat,nav,1); /* BGD_E1E5b */
+            return P1-b1;
         }
         else if (sys==SYS_CMP) { /* B1I/B1Cp/B1Cd */
-            /* prange返回原始P1，Klobuchar电离层改正统一由rescode处理 */
-            return P1;
+            if      (obs->code[0]==CODE_L2I) b1=gettgd(sat,nav,0); /* TGD_B1I */
+            else if (obs->code[0]==CODE_L1P) b1=gettgd(sat,nav,2); /* TGD_B1Cp */
+            else b1=gettgd(sat,nav,2)+gettgd(sat,nav,4); /* TGD_B1Cp+ISC_B1Cd */
+            return P1-b1;
         }
         else if (sys==SYS_IRN) { /* L5 */
-            /* prange返回原始P1，Klob层改正统一由rescode处理 */
-            return P1;
+            gamma=SQR(FREQs/FREQL5);
+            b1=gettgd(sat,nav,0); /* TGD (m) */
+            return P1-gamma*b1;
         }
     }
     return P1;
@@ -356,29 +350,16 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
         if (iter>0) {
             /* 5.test SNR mask */
             if (!snrmask(obs+i,azel+i*2,opt)) continue;
-            /* 6.电离层校正(以L1波段为基础) */
-            /* UDUC混合机制: 若为IFLC模式但缺失第二频率，退化为BRDC模型进行单频补偿 */
-            int f2_ = seliflc(opt->nf, sys);
-            int fallback_single = (opt->ionoopt==IONOOPT_IFLC && obs[i].P[f2_]==0.0);
-            int ionoopt_cur = fallback_single ? IONOOPT_BRDC : opt->ionoopt;
-
-            if (ionoopt_cur != IONOOPT_IFLC) {
-                /* prange已返回原始P1（GPS/GAL/CMP）或P1+TGD项（GLONASS），
-                   对GPS/GAL/CMP叠加Klobuchar改正，GLONASS不加（其TGD已在prange处理），
-                   但GLONASS G1的TGD改正在退化解中误差过大，跳过 */
-                if (fallback_single && sys==SYS_GLO) {
-                    continue; /* GLONASS G1无L2时TGD改正误差约8m，跳过 */
-                }
-                if (!ionocorr(time,nav,sat,pos,azel+i*2,ionoopt_cur,&dion,&vion)) {
-                    continue;
-                }
-                if ((freq=sat2freq(sat,obs[i].code[0],nav))==0.0) continue;
-                dion*=SQR(FREQL1/freq);
-                vion*=SQR(SQR(FREQL1/freq));
-            } else {
-                dion=0.0; vion=0.0;
+        
+            /* 6.电离层校正(以L1波段为基础)，使用其他频段则基于L1进行转换 */
+            if (!ionocorr(time,nav,sat,pos,azel+i*2,opt->ionoopt,&dion,&vion)) {
+                continue;
             }
-
+            if ((freq=sat2freq(sat,obs[i].code[0],nav))==0.0) continue;
+            // 频率转换（从L1频段转换为其他频段）
+            dion*=SQR(FREQL1/freq); // 电离层改正延迟(m)
+            vion*=SQR(SQR(FREQL1/freq)); // 电离层改正误差(m^2)
+        
             /* 7.对流层校正 */
             if (!tropcorr(time,nav,pos,azel+i*2,opt->tropopt,&dtrp,&vtrp)) {
                 continue;
@@ -386,7 +367,7 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
         }
         /* 8.计算DCB校正伪距 */
         if ((P=prange(obs+i,nav,opt,&vmeas))==0.0) continue;
-
+        
         /* 9.计算此时伪距残差，累加测距误差(URE) */
         // 计算伪距残差(P-(r+c*dtr-c*dts+I+T)),程序中dtr单位为m
         v[nv]=P-(r+dtr-CLIGHT*dts[i*2]+dion+dtrp);
