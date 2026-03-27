@@ -16,8 +16,12 @@ import io
 
 # 设置输入数据集的位置，以及解算结果文件
 DATA_SET = 'train'       # 选择数据文件夹
-SOL_TAG = 'spp'          # 定位解决方案
+SOL_TAG = 'spp-brdc'          # 定位解决方案
 datapath = '../data/'    # 相对python脚本的路径
+
+# 设置二进制文件和配置文件, 相对python脚本的路径
+binpath_rtklib  = "../rtklib/rnx2rtkp.exe"
+cfgfile_rtklib = "../config/Hybrid-frequency-spp.conf"
 
 # 设置解算选项
 OVERWRITE_RINEX = False   # 是否覆盖已存在的rinex文件
@@ -27,10 +31,6 @@ OVERWRITE_SOL = True     # 是否覆盖已存在的解算结果文件
 
 # 选择要处理的手机型号，留空则自动识别数据目录下所有机型文件夹名
 PHONES = []  # 为空时自动识别(所有机型)
-
-# 设置二进制文件和配置文件, 相对python脚本的路径
-binpath_rtklib  = "../rtklib/rnx2rtkp.exe"
-cfgfile_rtklib = "../config/gsdc_2023_config1.conf"
 
 # 设置观测和导航文件的匹配规则
 basefiles = '*0.2*o'                      # 观测文件, 支持多种扩展名

@@ -98,12 +98,12 @@ static void printhelp(void)
 /* rnx2rtkp main -------------------------------------------------------------*/
 int main(int argc, char **argv)
 {
-    prcopt_t prcopt = prcopt_default; // 初始化处理方式结构体
-	solopt_t solopt = solopt_default; // 初始化解算结果输出结构体
-	filopt_t filopt = { "" };         // 初始化文件选项结构体
-	gtime_t ts = { 0 }, te = { 0 };   // 初始化起止时间
-    double tint=0.0,es[]={2000,1,1,0,0,0},ee[]={2000,12,31,23,59,59},pos[3];
-    int i,j,n,ret;
+	prcopt_t prcopt = prcopt_default; /* 初始化处理方式结构体 */
+	solopt_t solopt = solopt_default; /* 初始化解算结果输出结构体 */
+	filopt_t filopt = { "" };         /* 初始化文件选项结构体 */
+	gtime_t ts = { 0 }, te = { 0 };   /* 初始化起止时间 */
+	double tint=0.0,es[]={2000,1,1,0,0,0},ee[]={2000,12,31,23,59,59},pos[3];
+	int i,j,n,ret;
     const char *infile[MAXFILE],*outfile="",*p;
     const char *rover = "", *base = "";
 

@@ -10,7 +10,7 @@ from datetime import datetime
 ########### Input parameters ###############################
 
 DATA_SET = 'train' # 选择数据文件夹
-SOL_TAG = 'spp' # 解算文件标签
+SOL_TAG = 'spp-brdc' # 解算文件标签
 datapath = '../data/' # 相对python脚本的路径
 rovfile = 'gnss_log'
 hdrlen = 25    # 25 for RTKLIB, 1 for RTKLIB-py，表示跳过前多少行
@@ -30,10 +30,7 @@ GPS_TO_UTC = 315964782  # second
 def create_csv(datapath, DATA_SET, SOL_TAG):
     # get timestamps from existing baseline file
     os.chdir(datapath)
-    if DATA_SET[:4] == 'test':
-        baseline_file = 'best_submission.csv'
-    else: 
-        baseline_file = 'ground_truths_' + DATA_SET + '.csv'
+    baseline_file = 'ground_truths_' + DATA_SET + '.csv'
 
     # read data from baseline file
     base_txt = np.genfromtxt(baseline_file, delimiter=',',invalid_raise=False, 
