@@ -47,7 +47,7 @@
 #define MIN_EL      (5.0*D2R)   /* min elevation for measurement error (rad) */
 # define MAX_GDOP   30          /* max gdop for valid solution  */
 
-/* 计算伪距测量误差方差 ------------------------------------
+/* 计算单个卫星伪距观测值误差方差，用以随机模型定权------------------------------------
  args   :const prcopt_t *opt   I   处理过程选项
          const ssat_t   *ssat  I   卫星状态
          const obsd_t   *obs   I   观测量数据
@@ -59,7 +59,7 @@ static double varerr(const prcopt_t *opt, const ssat_t *ssat, const obsd_t *obs,
 {
     double fact=1.0,varr,snr_rover;
 
-    switch (sys) {
+    switch (sys) { // 确定各导航系统误差放大因子
         case SYS_GPS: fact *= EFACT_GPS; break;
         case SYS_GLO: fact *= EFACT_GLO; break;
         case SYS_SBS: fact *= EFACT_SBS; break;
@@ -72,26 +72,32 @@ static double varerr(const prcopt_t *opt, const ssat_t *ssat, const obsd_t *obs,
     /* var = R^2*(a^2 + (b^2/sin(el) + c^2*(10^(0.1*(snr_max-snr_rover)))) + (d*rcv_std)^2) */
     varr=SQR(opt->err[1])+SQR(opt->err[2])/sin(el);
     if (opt->err[6]>0.0) {  /* if snr term not zero */
-        snr_rover=(ssat)?ssat->snr_rover[0]:opt->err[5];
+        snr_rover=(ssat)?ssat->snr_rover[0]:opt->err[5]; // 默认使用第一频点的观测SNR
         varr+=SQR(opt->err[6])*pow(10,0.1*MAX(opt->err[5]-snr_rover,0));
     }
     varr*=SQR(opt->eratio[0]);
     if (opt->err[7]>0.0) {
         varr+=SQR(opt->err[7]*obs->Pstd[0]);
     }
-    if (opt->ionoopt==IONOOPT_IFLC) varr*=SQR(3.0); /* iono-free */
+    if (opt->ionoopt==IONOOPT_IFLC) varr*=SQR(3.0); /* 对于无电离层组合，观测噪声放大，方差理应增大 */
     return SQR(fact)*varr;
 }
-/* get group delay parameter (m) ---------------------------------------------*/
+/* 计算指定卫星的群延迟参数TGD (s→m) ---------------------------------------------
+args   :       int        sat     I   卫星编号
+         const nav_t     *nav     I   导航数据
+		       int        type    I   TGD类型 (0:TGD_L1L2, 1:TGD_L2L5, 2:TGD_B1I_B1Cp, 3:TGD_B2I_B2bI, 4:ISC_B1Cd)
+（需要调试！是否会改正L1与L5之间TGD参数（目前似乎看只改正L1-L2））
+return : TGD m
+---------------------------------------------*/
 static double gettgd(int sat, const nav_t *nav, int type)
 {
     int i,sys=satsys(sat,NULL);
     
-    if (sys==SYS_GLO) {
+	if (sys == SYS_GLO) { // GLONASS卫星单独计算
         for (i=0;i<nav->ng;i++) {
             if (nav->geph[i].sat==sat) break;
         }
-        return (i>=nav->ng)?0.0:-nav->geph[i].dtaun*CLIGHT;
+        return (i>=nav->ng)?0.0:nav->geph[i].dtaun*CLIGHT;
     }
     else {
         for (i=0;i<nav->n;i++) {
@@ -100,12 +106,18 @@ static double gettgd(int sat, const nav_t *nav, int type)
         return (i>=nav->n)?0.0:nav->eph[i].tgd[type]*CLIGHT;
     }
 }
-/* test SNR mask -------------------------------------------------------------*/
+/* test SNR mask 信噪比阈值测试 -------------------------------------------------------------
+args:    const obsd_t   *obs     I   观测量数据
+         const double   *azel    I   卫星方位角和高度角 {az,el} (rad)
+		 const prcopt_t *opt     I   处理过程选项
+
+return: 1:ok, 0: 拒绝卫星
+------------------------------------------------------------- */
 static int snrmask(const obsd_t *obs, const double *azel, const prcopt_t *opt)
 {
     int f2;
 
-    if (testsnr(0,0,azel[1],obs->SNR[0],&opt->snrmask)) {
+	if (testsnr(0, 0, azel[1], obs->SNR[0], &opt->snrmask)) { //第一频点SNR门限检查，若不满足则直接拒绝卫星
         return 0;
     }
     if (opt->ionoopt==IONOOPT_IFLC) {
@@ -116,44 +128,50 @@ static int snrmask(const obsd_t *obs, const double *azel, const prcopt_t *opt)
     }
     return 1;
 }
-/* iono-free or "pseudo iono-free" pseudorange with code bias correction
-    无电离或“伪无电离”伪距，具有代码偏差校正-----*/
+/* 无电离层或“伪无电离”，伪距差分码偏差校正DCB、IFLC、TGD----------------------------------------
+args:  const obsd_t      *obs     I   观测量数据
+       const nav_t       *nav     I   导航数据
+       const prcopt_t    *opt     I   处理过程选项
+	         double      *var     O   伪距差分码偏差DCB校正的方差 (m^2)
+
+return: 伪距差分码偏差DCB校正后的伪距值 (m)
+------------------------------------------------------------- */
 static double prange(const obsd_t *obs, const nav_t *nav, const prcopt_t *opt,
                      double *var)
 {
     double P1,P2,gamma,b1,b2;
     int sat,sys,f2,bias_ix;
 
-    sat=obs->sat;
-    sys=satsys(sat,NULL);
+    sat=obs->sat; // 卫星编号
+    sys=satsys(sat,NULL); // 卫星系统
     P1=obs->P[0];
     f2=seliflc(opt->nf,satsys(obs->sat,NULL));
     P2=obs->P[f2];
     *var=0.0;
 
-    if (P1==0.0) return 0.0; /* UDUC混合机制: 只要求P1存在即可 */
+    if (P1==0.0) return 0.0; /* 需要修改，可对L5进行单频处理 */
 
-    bias_ix=code2bias_ix(sys,obs->code[0]);  /* L1 code bias */
-    if (bias_ix>0) { /* 0=ref code */
+	/* DCB校正 */
+    bias_ix=code2bias_ix(sys,obs->code[0]);  /* L1 DCB校正 */
+    if (bias_ix>0) { /* 若为0代表为基准，无需校正 */
         P1+=nav->cbias[sat-1][0][bias_ix-1];
     }
 
-    int use_iflc = (opt->ionoopt==IONOOPT_IFLC && P2!=0.0);
+    int use_iflc = (opt->ionoopt==IONOOPT_IFLC && P2!=0.0); // 确认是否真的iflc
 
-    if (use_iflc) {
-        /* GPS code biases are L1/L2, Galileo are L1/L5 */
-        if (sys==SYS_GAL&&f2==1) {
-            /* skip code bias, no GAL L2 bias available */
-        }
-        else {  /* apply L2 or L5 code bias */
+    if (use_iflc) { /* 第二频率 DCB校正 */
+        /* 导航电文通常没有伽利略的L2(E5b)的DCB校正值，因此不校正*/
+        if (sys==SYS_GAL&&f2==1) {}
+        else {
             bias_ix=code2bias_ix(sys,obs->code[f2]);
-            if (bias_ix>0) { /* 0=ref code */
-                P2+=nav->cbias[sat-1][1][bias_ix-1]; /* L2 or L5 code bias */
+            if (bias_ix>0) { /* 若为0代表为基准，无需校正  */
+                P2+=nav->cbias[sat-1][1][bias_ix-1]; 
             }
         }
     }
 
-    if (use_iflc) { /* dual-frequency */
+    /* 构建IFLC，TGD校正 */
+    if (use_iflc) { 
         
         if (sys==SYS_GPS||sys==SYS_QZS) { /* L1-L2 or L1-L5 */
             gamma=f2==1?SQR(FREQL1/FREQL2):SQR(FREQL1/FREQL5);
@@ -161,17 +179,19 @@ static double prange(const obsd_t *obs, const nav_t *nav, const prcopt_t *opt,
         }
         else if (sys==SYS_GLO) { /* G1-G2 or G1-G3 */
             gamma=f2==1?SQR(FREQ1_GLO/FREQ2_GLO):SQR(FREQ1_GLO/FREQ3_GLO);
-            return (P2-gamma*P1)/(1.0-gamma);
+            b1=0.0; /* GLONASS星历钟差基准即为G1，因此G1无需群延迟修正 */
+            b2=(f2==1)?gettgd(sat,nav,0):0.0;  /* 对G2修正，G3通常没有TGD参数，因此不校正 */
+            return ((P2-gamma*P1)-(b2-gamma*b1))/(1.0-gamma);
         }
-        else if (sys==SYS_GAL) { /* E1-E5b, E1-E5a */
+        else if (sys==SYS_GAL) { /* E1-E5b or E1-E5a */
             gamma=f2==1?SQR(FREQL1/FREQE5b):SQR(FREQL1/FREQL5);
-            if (f2==1&&getseleph(SYS_GAL)) { /* F/NAV */
-                P2-=gettgd(sat,nav,0)-gettgd(sat,nav,1); /* BGD_E5aE5b */
+            if (f2==1&&getseleph(SYS_GAL)) { /* F/NAV 类型导航文件以E5a为基准 */
+                P2-=gettgd(sat,nav,0)-gettgd(sat,nav,1); /* 当L1-L2组合，TGD:E5a→E5b */
             }
             return (P2-gamma*P1)/(1.0-gamma);
         }
         else if (sys==SYS_CMP) { /* B1-B2 */
-            gamma=SQR(((obs->code[0]==CODE_L2I)?FREQ1_CMP:FREQL1)/FREQ2_CMP);
+			gamma = SQR(((obs->code[0] == CODE_L2I) ? FREQ1_CMP : FREQL1) / FREQ2_CMP); // B1I使用FREQ1_CMP，B1C使用FREQL1; 第二频率默认使用FREQ2_CMP（B2I/B2b）
             if      (obs->code[0]==CODE_L2I) b1=gettgd(sat,nav,0); /* TGD_B1I */
             else if (obs->code[0]==CODE_L1P) b1=gettgd(sat,nav,2); /* TGD_B1Cp */
             else b1=gettgd(sat,nav,2)+gettgd(sat,nav,4); /* TGD_B1Cp+ISC_B1Cd */
@@ -183,44 +203,46 @@ static double prange(const obsd_t *obs, const nav_t *nav, const prcopt_t *opt,
             return (P2-gamma*P1)/(1.0-gamma);
         }
     }
-    else { /* single-freq (L1/E1/B1) */
-        *var=SQR(ERR_CBIAS);
+
+    /* 单频TGD校正 */
+    else { 
+        *var = SQR(ERR_CBIAS); // 单频的未建模误差(Code Bias等)，因此方差设置为一个较大的值以降低其权重
 
         if (sys==SYS_GPS||sys==SYS_QZS) { /* L1 */
-            /* prange返回原始P1，Klobuchar电离层改正统一由rescode处理 */
-            return P1;
+            b1=gettgd(sat,nav,0); /* TGD (m) */
+            return P1-b1;
         }
-        else if (sys==SYS_GLO) { /* G1 */
-            /* GLONASS G1: 群延迟改正在此处理，TGD项不在Klobuchar中 */
-            gamma=SQR(FREQ1_GLO/FREQ2_GLO);
-            b1=gettgd(sat,nav,0); /* -dtaun (m) */
-            return P1-b1/(gamma-1.0);
+        else if (sys == SYS_GLO) { /* G1 */
+            return P1; /* GLONASS G1: 星历钟差已经对准G1，无需群延迟改正 */
         }
         else if (sys==SYS_GAL) { /* E1 */
-            /* prange返回原始P1，Klobuchar电离层改正统一由rescode处理 */
-            return P1;
+            if (getseleph(SYS_GAL)) b1=gettgd(sat,nav,0); /* F/NAV基于E5a */
+            else                    b1=gettgd(sat,nav,1); /* I/NAV基于E5b */
+            return P1-b1;
         }
         else if (sys==SYS_CMP) { /* B1I/B1Cp/B1Cd */
-            /* prange返回原始P1，Klobuchar电离层改正统一由rescode处理 */
-            return P1;
+            if      (obs->code[0]==CODE_L2I) b1=gettgd(sat,nav,0); /* TGD_B1I */
+            else if (obs->code[0]==CODE_L1P) b1=gettgd(sat,nav,2); /* TGD_B1Cp */
+            else b1=gettgd(sat,nav,2)+gettgd(sat,nav,4); /* TGD_B1Cp+ISC_B1Cd */
+            return P1-b1;
         }
         else if (sys==SYS_IRN) { /* L5 */
-            /* prange返回原始P1，Klob层改正统一由rescode处理 */
-            return P1;
+            b1=gettgd(sat,nav,0); /* TGD (m) */
+            return P1-b1;
         }
     }
     return P1;
 }
 /* 电离层修正 ------------------------------------------------------
-* args   : gtime_t time     I   time
-*          nav_t  *nav      I   navigation data
-*          int    sat       I   satellite number
-*          double *pos      I   receiver position {lat,lon,h} (rad|m)
-*          double *azel     I   azimuth/elevation angle {az,el} (rad)
-*          int    ionoopt   I   ionospheric correction option (IONOOPT_???)
-*          double *ion      O   ionospheric delay (L1) (m)
-*          double *var      O   ionospheric delay (L1) variance (m^2)
-* return : status(1:ok,0:error)
+* args   : gtime_t time     I   时间
+*          nav_t  *nav      I   导航数据
+*          int    sat       I   卫星编号
+*          double *pos      I   接收机位置 {lat,lon,h} (rad|m)
+*          double *azel     I   方位角/高度角 {az,el} (rad)
+*          int    ionoopt   I   电离层校正选项 (IONOOPT_???)
+*          double *ion      O   电离层延迟 (L1) (m)
+*          double *var      O   电离层延迟 (L1) 方差 (m^2)
+* return : 状态 (1:成功, 0:错误)
 *-----------------------------------------------------------------------------*/
 extern int ionocorr(gtime_t time, const nav_t *nav, int sat, const double *pos,
                     const double *azel, int ionoopt, double *ion, double *var)
@@ -242,13 +264,13 @@ extern int ionocorr(gtime_t time, const nav_t *nav, int sat, const double *pos,
         if (iontec(time,nav,pos,azel,1,ion,var)) return 1;
         err=1;
     }
-    /* QZSS broadcast ionosphere model */
+    /* QZSS broadcast ionosphere model（Klobuchar） */
     if (ionoopt==IONOOPT_QZS&&norm(nav->ion_qzs,8)>0.0) {
         *ion=ionmodel(time,nav->ion_qzs,pos,azel);
         *var=SQR(*ion*ERR_BRDCI);
         return 1;
     }
-    /* GPS broadcast ionosphere model */
+    /* GPS broadcast ionosphere model（Klobuchar） */
     if (ionoopt==IONOOPT_BRDC||err==1) {
         *ion=ionmodel(time,nav->ion_gps,pos,azel);
         *var=SQR(*ion*ERR_BRDCI);
@@ -259,15 +281,15 @@ extern int ionocorr(gtime_t time, const nav_t *nav, int sat, const double *pos,
     *var=ionoopt==IONOOPT_OFF?SQR(ERR_ION):0.0;
     return 1;
 }
-/* tropospheric correction -----------------------------------------------------
+/* 对流层校正 -----------------------------------------------------
 * compute tropospheric correction
-* args   : gtime_t time     I   time
-*          nav_t  *nav      I   navigation data
-*          double *pos      I   receiver position {lat,lon,h} (rad|m)
-*          double *azel     I   azimuth/elevation angle {az,el} (rad)
-*          int    tropopt   I   tropospheric correction option (TROPOPT_???)
-*          double *trp      O   tropospheric delay (m)
-*          double *var      O   tropospheric delay variance (m^2)
+* args   : gtime_t time     I   时间
+*          nav_t  *nav      I   卫星数据
+*          double *pos      I   接收机位置 {lat,lon,h} (rad|m)
+*          double *azel     I   方位角/高度角 {az,el} (rad)
+*          int    tropopt   I   对流层校正项 (TROPOPT_???)
+*          double *trp      O   对流层延迟 (m)
+*          double *var      O   对流层延迟方差 (m^2)
 * return : status(1:ok,0:error)
 *-----------------------------------------------------------------------------*/
 extern int tropcorr(gtime_t time, const nav_t *nav, const double *pos,
@@ -323,9 +345,9 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
 {
     gtime_t time;
     double r,freq,dion=0.0,dtrp=0.0,vmeas,vion=0.0,vtrp=0.0,rr[3],pos[3],dtr,e[3],P;
-	int i, j, nv = 0, sat, sys, mask[NX - 3] = { 0 }; // nv表示有效观测数（计数器）；mask数组用于标记不同导航系统的时间偏差是否被处理过
+	int i,j,nv=0,sat,sys,mask[NX-3]={0}; // nv表示有效观测数（计数器）；mask数组用于标记不同导航系统的时间偏差是否被处理过
 
-    //将之前得到的定位解信息赋值给 rr 和 dtr 数组，以进行关于当前解的伪距残差的相关计算
+    //将之前得到的定位解信息赋值给rr和dtr数组
     for (i=0;i<3;i++) rr[i]=x[i];
     dtr=x[3];
     
@@ -335,8 +357,8 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
     //遍历当前历元所有OBS[] 
     for (i=*ns=0;i<n&&i<MAXOBS;i++) {
         vsat[i]=0; azel[i*2]=azel[1+i*2]=resp[i]=0.0; // 初始化，因为在前后两次定位结果中，每颗卫星的上述信息都会发生变化。
-        time=obs[i].time; // time赋值OBS的时间
-        sat=obs[i].sat; // sat赋值OBS的卫星
+        time=obs[i].time; // 时间
+        sat=obs[i].sat; // 卫星编号
         if (!(sys=satsys(sat,NULL))) continue; //1.调用satsys()函数，验证卫星编号是否合理，查找其所属的导航系统
         
         // 剔除重复的观测数据
@@ -353,30 +375,25 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
         if ((r=geodist(rs+i*6,rr,e))<=0.0) continue;
         if (satazel(pos,e,azel+i*2)<opt->elmin) continue;
         
-        if (iter>0) {
+        if (iter>0) { // 第一次迭代时候缺少定位数据，强行经过下面修正会产生巨大误差
             /* 5.test SNR mask */
             if (!snrmask(obs+i,azel+i*2,opt)) continue;
+
             /* 6.电离层校正(以L1波段为基础) */
-            /* UDUC混合机制: 若为IFLC模式但缺失第二频率，退化为BRDC模型进行单频补偿 */
+            /* 若为IFLC模式但缺失第二频率，退化为BRDC模型进行单频补偿 */
             int f2_ = seliflc(opt->nf, sys);
             int fallback_single = (opt->ionoopt==IONOOPT_IFLC && obs[i].P[f2_]==0.0);
             int ionoopt_cur = fallback_single ? IONOOPT_BRDC : opt->ionoopt;
 
-            if (ionoopt_cur != IONOOPT_IFLC) {
-                /* prange已返回原始P1（GPS/GAL/CMP）或P1+TGD项（GLONASS），
-                   对GPS/GAL/CMP叠加Klobuchar改正，GLONASS不加（其TGD已在prange处理），
-                   但GLONASS G1的TGD改正在退化解中误差过大，跳过 */
-                if (fallback_single && sys==SYS_GLO) {
-                    continue; /* GLONASS G1无L2时TGD改正误差约8m，跳过 */
-                }
+			if (ionoopt_cur != IONOOPT_IFLC) { // 单频电离层校正，或IFLC模式但缺失第二频率退化为单频处理
                 if (!ionocorr(time,nav,sat,pos,azel+i*2,ionoopt_cur,&dion,&vion)) {
                     continue;
                 }
-                if ((freq=sat2freq(sat,obs[i].code[0],nav))==0.0) continue;
+                if ((freq=sat2freq(sat,obs[i].code[0],nav))==0.0) continue; // 载波频率有效性检查
                 dion*=SQR(FREQL1/freq);
                 vion*=SQR(SQR(FREQL1/freq));
             } else {
-                dion=0.0; vion=0.0;
+                dion=0.0; vion=0.0; // IFLC
             }
 
             /* 7.对流层校正 */
@@ -384,10 +401,10 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
                 continue;
             }
         }
-        /* 8.计算DCB校正伪距 */
+        /* 8.计算校正伪距（DCB、IFLC、TGD） */
         if ((P=prange(obs+i,nav,opt,&vmeas))==0.0) continue;
 
-        /* 9.计算此时伪距残差，累加测距误差(URE) */
+        /* 9.计算此时伪距残差，累加测距误差 */
         // 计算伪距残差(P-(r+c*dtr-c*dts+I+T)),程序中dtr单位为m
         v[nv]=P-(r+dtr-CLIGHT*dts[i*2]+dion+dtrp);
         trace(4,"sat=%d: v=%.3f P=%.3f r=%.3f dtr=%.6f dts=%.6f dion=%.3f dtrp=%.3f\n",
@@ -397,7 +414,7 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
         for (j=0;j<NX;j++) {
             H[j+nv*NX]=j<3?-e[j]:(j==3?1.0:0.0); // 前3列是坐标改正数（赋卫星与接收机之间的单位矢量），第四列是GPS钟差（赋1），后面是不同导航系统之间的时间偏差（赋初值0）
         }
-        // 处理不同导航系统之间的时间偏差（校正伪距残差，即减去与基准GPS的接收机钟差），修改矩阵 H
+        // 处理不同导航系统之间的时间偏差（伪距残差减去与基准GPS的接收机钟差），修改矩阵 H
         if      (sys==SYS_GLO) {v[nv]-=x[4]; H[4+nv*NX]=1.0; mask[1]=1;}
         else if (sys==SYS_GAL) {v[nv]-=x[5]; H[5+nv*NX]=1.0; mask[2]=1;}
         else if (sys==SYS_CMP) {v[nv]-=x[6]; H[6+nv*NX]=1.0; mask[3]=1;}
@@ -409,7 +426,7 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
 
         vsat[i]=1; resp[i]=v[nv]; (*ns)++;
         
-        // 11.累加计算用户测距误差(电离层，对流层，DCB等)，随机模型定权
+        // 11.计算用户测距总方差，用以随机模型定权
         var[nv]=vare[i]+vmeas+vion+vtrp;
         if (ssat)
             var[nv++]+=varerr(opt,&ssat[i],&obs[i],azel[1+i*2],sys);
@@ -782,7 +799,7 @@ extern int pntpos(const obsd_t *obs, int n, const nav_t *nav,
     /* 3.接收机自主完好性监测与粗差剔除 */
     if (!stat&&n>=6&&opt->posopt[4]) {      //estpos中valsol检验失败，即位置估计失败，
                                             //会调用RAIM接收机自主完好性监测重新估计，
-                                            //前提是卫星数>6、对应参数解算设置opt->posopt[4]=1
+                                            //前提是卫星数>6、对应参数解算设置opt->posopt[4]=1（似乎现在配置文件没）
         stat=raim_fde(obs,n,rs,dts,var,svh,nav,&opt_,ssat,sol,azel_,vsat,resp,msg);
     }
     /* 4.用多普勒估算接收机速度 */

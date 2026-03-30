@@ -3739,7 +3739,7 @@ extern double ionppp(const double *pos, const double *azel, double re,
 /* select iono-free linear combination (L1/L2 or L1/L5) ----------------------*/
 extern int seliflc(int optnf,int sys)
 {
-    /* use L1/L5 for Galileo if L5 is enabled */
+    /* IFLC第二频段选择：只有nf＞2且为伽利略择L5（E1/E5a） */
     return((optnf==2||sys!=SYS_GAL)?1:2);
 }
 /* troposphere model -----------------------------------------------------------

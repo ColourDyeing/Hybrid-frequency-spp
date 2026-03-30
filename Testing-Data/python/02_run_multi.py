@@ -15,12 +15,13 @@ import sys
 import io
 
 # 设置输入数据集的位置，以及解算结果文件
-DATA_SET = 'train'       # 选择数据文件夹
-SOL_TAG = 'spp-brdc'          # 定位解决方案
+DATA_SET = 'test'       # 选择数据文件夹
+SOL_TAG = 'spp-test'          # 定位解决方案
 datapath = '../data/'    # 相对python脚本的路径
 
 # 设置二进制文件和配置文件, 相对python脚本的路径
-binpath_rtklib  = "../rtklib/rnx2rtkp.exe"
+binpath_rtklib  = "../rtklib/rnx2rtkp-df.exe"
+# binpath_rtklib = "D:/Desktop/RTKLIB-VS/Graduation/RTKLIB-PRO/app/consapp/rnx2rtkp/msc/Debug/rnx2rtkp.exe"   
 cfgfile_rtklib = "../config/Hybrid-frequency-spp.conf"
 
 # 设置解算选项
@@ -84,13 +85,7 @@ def run_rtklib(args_tuple):
     if basefile:
         rtkcmd.append(basefile)
     rtkcmd.append(navfile)
-    try:
-        subprocess.run(rtkcmd, cwd=folder,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
-    except subprocess.TimeoutExpired:
-        print(f'  [超时] {os.path.basename(folder)} 超过60秒', flush=True)
-    except Exception as e:
-        print(f'  [错误] {os.path.basename(folder)}: {e}', flush=True)
+    subprocess.run(rtkcmd, cwd=folder, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return True
 
 ####### 主程序入口 ##########################
@@ -181,10 +176,11 @@ def main():
         sys.stdout.flush()
         total = len(rtklibIn)
         completed = 0
-        with Pool() as pool:
-            for _ in pool.imap_unordered(run_rtklib, rtklibIn, chunksize=1):
-                completed += 1
-                print(f'\r完成: {completed}/{total}', end='', flush=True)
+        # 单线程模式
+        for item in rtklibIn:
+            run_rtklib(item)
+            completed += 1
+            print(f'\r完成: {completed}/{total}', end='', flush=True)
         print('\nRTKLIB解算全部完成!')
         sys.stdout.flush()
 

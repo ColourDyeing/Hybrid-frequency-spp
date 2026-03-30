@@ -5,7 +5,7 @@ create_groundtruth_csv.py - 创建csv文件,从所有参考文件中提取位置
 import os
 from os.path import join, isfile, dirname, abspath
 
-DATA_SET = 'train'  # 选择数据文件夹
+DATA_SET = 'test'  # 选择数据文件夹
 datapath = '../data/' # 相对python脚本的路径
 
 # Get absolute path based on script location
