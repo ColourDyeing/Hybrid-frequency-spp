@@ -1,0 +1,51 @@
+生成启动时间为 2026/3/31 2:15:41。
+日志记录详细程度设置为: Detailed。进程 = "D:\VisualStudio\MSBuild\Current\Bin\MSBuild.exe"
+MSBuild 可执行文件路径 = "D:\VisualStudio\MSBuild\Current\Bin\MSBuild.exe"
+命令行参数 = ""D:\VisualStudio\MSBuild\Current\Bin\MSBuild.exe" d:\Desktop\RTKLIB-VS\Graduation\RTKLIB-PRO\app\consapp\rnx2rtkp\msc\msc.sln /p:Configuration=Debug /p:Platform=x64 /t:Rebuild /v:d /fileLogger"
+当前目录 = "D:\Desktop\RTKLIB-VS\Graduation\RTKLIB-PRO\app\consapp\rnx2rtkp\msc"
+MSBuild 版本 = "18.4.0+6e61e96ac"
+基于 Windows 注册表项 LongPathsEnabled，LongPaths 功能为 已启用。
+基于 Windows 注册表项 VerifiedAndReputablePolicyState，SAC 状态 = 0: 已关闭。
+将从自动响应文件“D:\VisualStudio\MSBuild\Current\Bin\MSBuild.rsp”中读取某些命令行开关。若要禁用此文件，请使用“-noAutoResponse”开关。
+
+在  处重新分配属性: $(MSBuildExtensionsPath)=“D:\VisualStudio\MSBuild”(先前值:“C:\Program Files (x86)\MSBuild”)
+在  处重新分配属性: $(MSBuildExtensionsPath32)=“D:\VisualStudio\MSBuild”(先前值:“C:\Program Files (x86)\MSBuild”)
+将用于 $(MSBuildExtensionsPath) 的搜索路径为 D:\VisualStudio\MSBuild;$(MSBuildProgramFiles32)\MSBuild
+将用于 $(MSBuildExtensionsPath) 的搜索路径为 D:\VisualStudio\MSBuild;$(MSBuildProgramFiles32)\MSBuild
+尝试使用扩展路径 D:\VisualStudio\MSBuild 导入 D:\VisualStudio\MSBuild\$(MSBuildToolsVersion)\SolutionFile\ImportAfter\*
+D:\VisualStudio\Common7\IDE\CommonExtensions\Microsoft\NuGet\NuGet.targets(123,5): message : 在 D:\VisualStudio\Common7\IDE\CommonExtensions\Microsoft\NuGet\NuGet.targets (123,5) 处重新分配属性: $(_GenerateRestoreGraphProjectEntryInputProperties)=“
+D:\VisualStudio\Common7\IDE\CommonExtensions\Microsoft\NuGet\NuGet.targets(123,5): message :       ExcludeRestorePackageImports=true;
+D:\VisualStudio\Common7\IDE\CommonExtensions\Microsoft\NuGet\NuGet.targets(123,5): message :       _RestoreSolutionFileUsed=true;
+D:\VisualStudio\Common7\IDE\CommonExtensions\Microsoft\NuGet\NuGet.targets(123,5): message :       SolutionDir=d:\Desktop\RTKLIB-VS\Graduation\RTKLIB-PRO\app\consapp\rnx2rtkp\msc\;
+D:\VisualStudio\Common7\IDE\CommonExtensions\Microsoft\NuGet\NuGet.targets(123,5): message :       SolutionName=msc;
+D:\VisualStudio\Common7\IDE\CommonExtensions\Microsoft\NuGet\NuGet.targets(123,5): message :       SolutionFileName=msc.sln;
+D:\VisualStudio\Common7\IDE\CommonExtensions\Microsoft\NuGet\NuGet.targets(123,5): message :       SolutionPath=d:\Desktop\RTKLIB-VS\Graduation\RTKLIB-PRO\app\consapp\rnx2rtkp\msc\msc.sln;
+D:\VisualStudio\Common7\IDE\CommonExtensions\Microsoft\NuGet\NuGet.targets(123,5): message :       SolutionExt=.sln;
+D:\VisualStudio\Common7\IDE\CommonExtensions\Microsoft\NuGet\NuGet.targets(123,5): message :     ”(先前值:“ExcludeRestorePackageImports=true”)
+项目中不存在 BeforeTargets 特性中的“D:\VisualStudio\Common7\IDE\CommonExtensions\Microsoft\NuGet\NuGet.targets (703,11)”位置列出的目标“_CheckForInvalidConfigurationAndPlatform”，将忽略该目标。
+项目“d:\Desktop\RTKLIB-VS\Graduation\RTKLIB-PRO\app\consapp\rnx2rtkp\msc\msc.sln”在节点 1 上(Rebuild 个目标)。
+来自项目“d:\Desktop\RTKLIB-VS\Graduation\RTKLIB-PRO\app\consapp\rnx2rtkp\msc\msc.sln”的文件“d:\Desktop\RTKLIB-VS\Graduation\RTKLIB-PRO\app\consapp\rnx2rtkp\msc\msc.sln.metaproj”中的目标“ValidateSolutionConfiguration”(入口点):
+正在使用程序集“Microsoft.Build.Tasks.Core, Version=15.1.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a”中的“Message”任务。
+任务“Message”
+  正在生成解决方案配置“Debug|x64”。
+已完成执行任务“Message”的操作。
+已完成在项目“msc.sln”中生成目标“ValidateSolutionConfiguration”的操作。
+来自项目“d:\Desktop\RTKLIB-VS\Graduation\RTKLIB-PRO\app\consapp\rnx2rtkp\msc\msc.sln”的文件“d:\Desktop\RTKLIB-VS\Graduation\RTKLIB-PRO\app\consapp\rnx2rtkp\msc\msc.sln.metaproj”中的目标“ValidateToolsVersions”(入口点):
+已完成在项目“msc.sln”中生成目标“ValidateToolsVersions”的操作。
+来自项目“d:\Desktop\RTKLIB-VS\Graduation\RTKLIB-PRO\app\consapp\rnx2rtkp\msc\msc.sln”的文件“d:\Desktop\RTKLIB-VS\Graduation\RTKLIB-PRO\app\consapp\rnx2rtkp\msc\msc.sln.metaproj”中的目标“ValidateProjects”(入口点):
+任务“Message”
+  在解决方案配置“Debug|x64”中未选定生成项目“msc”。
+已完成执行任务“Message”的操作。
+已完成在项目“msc.sln”中生成目标“ValidateProjects”的操作。
+来自项目“d:\Desktop\RTKLIB-VS\Graduation\RTKLIB-PRO\app\consapp\rnx2rtkp\msc\msc.sln”的文件“d:\Desktop\RTKLIB-VS\Graduation\RTKLIB-PRO\app\consapp\rnx2rtkp\msc\msc.sln.metaproj”中的目标“Rebuild”(入口点):
+正在使用程序集“Microsoft.Build.Tasks.Core, Version=15.1.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a”中的“MSBuild”任务。
+任务“MSBuild”
+已完成执行任务“MSBuild”的操作。
+已完成在项目“msc.sln”中生成目标“Rebuild”的操作。
+已完成生成项目“d:\Desktop\RTKLIB-VS\Graduation\RTKLIB-PRO\app\consapp\rnx2rtkp\msc\msc.sln”(Rebuild 个目标)的操作。
+
+已成功生成。
+    0 个警告
+    0 个错误
+
+已用时间 00:00:00.08

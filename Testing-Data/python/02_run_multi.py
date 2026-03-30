@@ -81,7 +81,7 @@ def convert_rnx(args_tuple):
 def run_rtklib(args_tuple):
     binpath_rtklib, cfgfile_rtklib, folder, obsfile, basefile, navfile, solfile = args_tuple
     # 构建命令，只传存在的文件，空文件用 None 跳过
-    rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile]
+    rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile,'-x', '2']
     if basefile:
         rtkcmd.append(basefile)
     rtkcmd.append(navfile)

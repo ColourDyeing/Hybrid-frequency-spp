@@ -77,7 +77,8 @@ static double varerr(const prcopt_t *opt, const ssat_t *ssat, const obsd_t *obs,
         snr_rover=(ssat)?ssat->snr_rover[0]:opt->err[5]; // 默认使用第一频点的观测SNR
         varr+=SQR(opt->err[6])*pow(10,0.1*MAX(opt->err[5]-snr_rover,0));
     }
-    varr*=SQR(opt->eratio[0]);
+    int er_ix = (f2 >= 0) ? f2 : 0; /* 根据IFLC组合类型选择eratio: f2=-1用[0],f2=1用[1],f2=2用[2] */
+    varr*=SQR(opt->eratio[er_ix]);
     if (opt->err[7]>0.0) {
         varr+=SQR(opt->err[7]*obs->Pstd[0]);
     }
