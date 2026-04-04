@@ -40,7 +40,7 @@ def create_csv(datapath, DATA_SET, SOL_TAG):
     pos_base = base_txt[:,2:4].astype(float) # baseline positions
     
     # open output file
-    output_filename = 'locations_' + SOL_TAG + '_' + DATA_SET + '_' + datetime.now().strftime("%m_%d_%H%M%S") + '.csv'
+    output_filename = 'locations_' + SOL_TAG + '_' + DATA_SET + '_' + datetime.now().strftime("%m_%d") + '.csv'
     fout =open(output_filename,'w') # 保存的文件名字
     fout.write('tripId,UnixTimeMillis,LatitudeDegrees,LongitudeDegrees,Height,Quality,NumSatellites,Sde,Sdu,Sdn,Sdne,Sdeu,Sdun\n')
     

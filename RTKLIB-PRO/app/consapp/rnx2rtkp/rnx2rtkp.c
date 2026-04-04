@@ -98,7 +98,7 @@ static void printhelp(void)
 /* rnx2rtkp main -------------------------------------------------------------*/
 int main(int argc, char **argv)
 {
-    Sleep(20000);// 调试程序用
+    //Sleep(20000);// 调试程序用
 	prcopt_t prcopt = prcopt_default; /* 初始化处理方式结构体 */
 	solopt_t solopt = solopt_default; /* 初始化解算结果输出结构体 */
 	filopt_t filopt = { "" };         /* 初始化文件选项结构体 */
