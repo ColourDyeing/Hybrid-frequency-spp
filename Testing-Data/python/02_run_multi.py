@@ -81,7 +81,8 @@ def convert_rnx(args_tuple):
 def run_rtklib(args_tuple):
     binpath_rtklib, cfgfile_rtklib, folder, obsfile, basefile, navfile, solfile = args_tuple
     # 构建命令，只传存在的文件，空文件用 None 跳过
-    rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile,'-x', '2']
+    # rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile,'-x', '3'] #调试打印trace文件用
+    rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile]
     if basefile:
         rtkcmd.append(basefile)
     rtkcmd.append(navfile)
@@ -176,7 +177,11 @@ def main():
         sys.stdout.flush()
         total = len(rtklibIn)
         completed = 0
-        # 单线程模式
+        # with Pool() as pool:
+        #     for _ in pool.imap_unordered(run_rtklib, rtklibIn, chunksize=1):
+        #         completed += 1
+        #         print(f'\r解算进度: {completed}/{total}', end='', flush=True)
+        # 单线程模式，用以调试
         for item in rtklibIn:
             run_rtklib(item)
             completed += 1
