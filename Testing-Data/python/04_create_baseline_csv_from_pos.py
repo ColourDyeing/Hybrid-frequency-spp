@@ -9,15 +9,15 @@ from datetime import datetime
 
 ########### Input parameters ###############################
 
-DATA_SET = 'test' # 选择数据文件夹
-SOL_TAG = 'spp-test' # 解算文件标签
+DATA_SET = 'dataset' # 选择数据文件夹
+SOL_TAG = 'spp-brdc2.0' # 解算文件标签
 datapath = '../data/' # 相对python脚本的路径
 rovfile = 'gnss_log'
 hdrlen = 25    # 25 for RTKLIB, 1 for RTKLIB-py，表示跳过前多少行
 
 outThresh = 100   # max horizontal accuracy estimate（本次不使用这个参数，后续可以根据需要添加）
 # Select all phones to process
-PHONES = []
+PHONES = ['mi8','pixel7pro','sm-g988b','sm-s908b']  # 为空时自动识别(所有机型)
 
 ############################################################
 

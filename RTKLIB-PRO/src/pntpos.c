@@ -304,7 +304,7 @@ extern int ionocorr(gtime_t time, const nav_t *nav, int sat, const double *pos,
     int err=0;
 
     char tstr[40];
-    trace(4,"ionocorr: time=%s opt=%d sat=%2d pos=%.3f %.3f azel=%.3f %.3f\n",
+    trace(3,"ionocorr: time=%s opt=%d sat=%2d pos=%.3f %.3f azel=%.3f %.3f\n",
           time2str(time,tstr,3),ionoopt,sat,pos[0]*R2D,pos[1]*R2D,azel[0]*R2D,
           azel[1]*R2D);
     
@@ -350,7 +350,7 @@ extern int tropcorr(gtime_t time, const nav_t *nav, const double *pos,
                     const double *azel, int tropopt, double *trp, double *var)
 {
     char tstr[40];
-    trace(4,"tropcorr: time=%s opt=%d pos=%.3f %.3f azel=%.3f %.3f\n",
+    trace(3,"tropcorr: time=%s opt=%d pos=%.3f %.3f azel=%.3f %.3f\n",
           time2str(time,tstr,3),tropopt,pos[0]*R2D,pos[1]*R2D,azel[0]*R2D,
           azel[1]*R2D);
     
@@ -466,7 +466,7 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
         /* 9.计算此时伪距残差，累加测距误差 */
         // 计算伪距残差(P-(r+c*dtr-c*dts+I+T)),程序中dtr单位为m
         v[nv]=P-(r+dtr-CLIGHT*dts[i*2]+dion+dtrp);
-        trace(4,"sat=%d: v=%.3f P=%.3f r=%.3f dtr=%.6f dts=%.6f dion=%.3f dtrp=%.3f\n",
+        trace(3,"sat=%d: v=%.3f P=%.3f r=%.3f dtr=%.6f dts=%.6f dion=%.3f dtrp=%.3f\n",
             sat,v[nv],P,r,dtr,dts[i*2],dion,dtrp);
        
         // 10.设计矩阵
@@ -491,7 +491,7 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
             var[nv++]+=varerr(opt,&ssat[i],&obs[i],azel[1+i*2],sys,f2);
         else
             var[nv++]+=varerr(opt,NULL,&obs[i],azel[1+i*2],sys,f2);
-        trace(4,"sat=%2d azel=%5.1f %4.1f res=%7.3f sig=%5.3f\n",obs[i].sat,
+        trace(3,"sat=%2d azel=%5.1f %4.1f res=%7.3f sig=%5.3f\n",obs[i].sat,
               azel[i*2]*R2D,azel[1+i*2]*R2D,resp[i],sqrt(var[nv-1]));
     }
     // 为防止不满秩，检查是否有缺失的导航系统，若有进行下述处理，以防止矩阵H秩亏

@@ -5,7 +5,7 @@ create_groundtruth_csv.py - 创建csv文件,从所有参考文件中提取位置
 import os
 from os.path import join, isfile, dirname, abspath
 
-DATA_SET = 'test'  # 选择数据文件夹
+DATA_SET = 'dataset'  # 选择数据文件夹
 datapath = '../data/' # 相对python脚本的路径
 
 # Get absolute path based on script location
@@ -13,7 +13,7 @@ SCRIPT_DIR = dirname(abspath(__file__))
 datapath = abspath(join(SCRIPT_DIR, datapath, DATA_SET))
 
 # 选择要处理的手机型号，留空则自动识别数据目录下所有机型文件夹名
-PHONES = []  # 为空时自动识别
+PHONES = ['mi8','pixel7pro','sm-g988b','sm-s908b']  # 为空时自动识别(所有机型)
 
 # open output file
 os.chdir(datapath)

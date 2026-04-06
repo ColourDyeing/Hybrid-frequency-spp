@@ -16,7 +16,7 @@ import io
 
 # 设置输入数据集的位置，以及解算结果文件
 DATA_SET = 'test'       # 选择数据文件夹
-SOL_TAG = 'spp-test'          # 定位解决方案
+SOL_TAG = 'spp-iflc'          # 定位解决方案
 datapath = '../data/'    # 相对python脚本的路径
 
 # 设置二进制文件和配置文件, 相对python脚本的路径
@@ -31,7 +31,7 @@ ENABLE_RTKLIB = True     # 是否使用RTKLIB生成解算结果
 OVERWRITE_SOL = True     # 是否覆盖已存在的解算结果文件
 
 # 选择要处理的手机型号，留空则自动识别数据目录下所有机型文件夹名
-PHONES = []  # 为空时自动识别(所有机型)
+PHONES = ['mi8','pixel7pro','sm-g988b','sm-s908b']  # 为空时自动识别(所有机型)
 
 # 设置观测和导航文件的匹配规则
 basefiles = '*0.2*o'                      # 观测文件, 支持多种扩展名
@@ -81,8 +81,8 @@ def convert_rnx(args_tuple):
 def run_rtklib(args_tuple):
     binpath_rtklib, cfgfile_rtklib, folder, obsfile, basefile, navfile, solfile = args_tuple
     # 构建命令，只传存在的文件，空文件用 None 跳过
-    # rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile,'-x', '3'] #调试打印trace文件用
-    rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile]
+    rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile,'-x', '3'] #调试打印trace文件用
+    # rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile]
     if basefile:
         rtkcmd.append(basefile)
     rtkcmd.append(navfile)
@@ -177,15 +177,15 @@ def main():
         sys.stdout.flush()
         total = len(rtklibIn)
         completed = 0
-        # with Pool() as pool:
-        #     for _ in pool.imap_unordered(run_rtklib, rtklibIn, chunksize=1):
-        #         completed += 1
-        #         print(f'\r解算进度: {completed}/{total}', end='', flush=True)
+        with Pool() as pool:
+            for _ in pool.imap_unordered(run_rtklib, rtklibIn, chunksize=1):
+                completed += 1
+                print(f'\r解算进度: {completed}/{total}', end='', flush=True)
         # 单线程模式，用以调试
-        for item in rtklibIn:
-            run_rtklib(item)
-            completed += 1
-            print(f'\r完成: {completed}/{total}', end='', flush=True)
+        # for item in rtklibIn:
+        #     run_rtklib(item)
+        #     completed += 1
+        #     print(f'\r完成: {completed}/{total}', end='', flush=True)
         print('\nRTKLIB解算全部完成!')
         sys.stdout.flush()
 
