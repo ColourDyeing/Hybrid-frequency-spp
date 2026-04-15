@@ -1,4 +1,4 @@
-/*------------------------------------------------------------------------------
+﻿/*------------------------------------------------------------------------------
 * pntpos.c : standard positioning
 *
 *          Copyright (C) 2007-2020 by T.TAKASU, All rights reserved.
@@ -168,6 +168,8 @@ static double prange(const obsd_t *obs, const nav_t *nav, const prcopt_t *opt, i
     if (bias_ix>0) { /* 0=ref code */
         P1+=nav->cbias[sat-1][0][bias_ix-1];
     }
+    trace(3, "P1 DCB: sat=%d P1=%.3f code0=%d bias_ix=%d dcb_P1=%.3f\n",
+        sat, P1, obs->code[0], bias_ix, nav->cbias[sat-1][0][bias_ix-1]);
     /* GPS code biases are L1/L2, Galileo are L1/L5 */
     if (sys==SYS_GAL&&f2==1) {
         /* skip code bias, no GAL L2 bias available */
@@ -192,11 +194,11 @@ static double prange(const obsd_t *obs, const nav_t *nav, const prcopt_t *opt, i
             gamma=f2==1?SQR(FREQL1/FREQE5b):SQR(FREQL1/FREQL5);
             /* DEBUG: Galileo IFLC diagnostic */
             trace(3,"prange GAL IFLC: sat=%d P1_raw=%.3f P2_raw=%.3f code0=%d code_f2=%d "
-                  "gamma=%.6f dcb_P1=%.3f dcb_P2=%.3f bgd_E1E5a=%.3f bgd_E1E5b=%.3f seleph=%d iflc=%.3f\n",
+                  "gamma=%.6f dcb_P1=%d dcb_P2=%d bgd_E1E5a=%.3f bgd_E1E5b=%.3f seleph=%d iflc=%.3f\n",
                   sat,obs->P[0],obs->P[f2],obs->code[0],obs->code[f2],
                   gamma,
-                  (bias_ix=code2bias_ix(sys,obs->code[0]))>0?nav->cbias[sat-1][0][bias_ix-1]:0.0,
-                  (bias_ix=code2bias_ix(sys,obs->code[f2]))>0?nav->cbias[sat-1][1][bias_ix-1]:0.0,
+                  code2bias_ix(sys,obs->code[0]),
+                  code2bias_ix(sys,obs->code[f2]),
                   gettgd(sat,nav,0),gettgd(sat,nav,1),getseleph(SYS_GAL),
                   (P2-gamma*P1)/(1.0-gamma));
             if (f2==1&&getseleph(SYS_GAL)) { /* F/NAV: E1-E5b */

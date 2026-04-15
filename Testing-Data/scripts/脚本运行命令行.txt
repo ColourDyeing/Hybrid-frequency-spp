@@ -1,0 +1,9 @@
+# 批量解算
+cd Testing-Data/scripts
+python batch_process_igs.py
+
+# 精度评定
+python evaluate_igs_results.py --all
+
+# 单独评定某个测站
+python evaluate_igs_results.py -s hksl cusv

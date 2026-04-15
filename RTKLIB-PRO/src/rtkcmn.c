@@ -1,4 +1,4 @@
-/*------------------------------------------------------------------------------
+﻿/*------------------------------------------------------------------------------
 * rtkcmn.c : rtklib common functions
 *
 *          Copyright (C) 2007-2020 by T.TAKASU, All rights reserved.
@@ -3322,14 +3322,43 @@ extern int expath(const char *path, char *paths[], int nmax)
     WIN32_FIND_DATA file;
     HANDLE h;
     char dir[1024]="",*p;
+    char pattern[1024]="",fullpath[1024]="";
+    const char *searchpath=path;
 
     trace(3,"expath  : path=%s nmax=%d\n",path,nmax);
 
-    if ((p=strrchr(path,'\\'))) {
+    /* for relative paths (containing ".." or starting with "."), convert to absolute path first */
+    if (strstr(path,"..")!=NULL||path[0]=='.') {
+        char exepath[1024]="",exdir[1024]="",*fname,dirname[1024]="";
+        DWORD len=GetModuleFileName(NULL,exepath,sizeof(exepath));
+        if (len>0) {
+            char *p2=exepath+strlen(exepath)-1;
+            while (p2>exepath&&*(p2-1)!='\\'&&*(p2-1)!='/') p2--;
+            strncpy(exdir,exepath,p2-exepath); exdir[p2-exepath]='\0';
+        }
+        /* split into directory part and file-pattern part (up to last / or \\) */
+        strncpy(fullpath,path,sizeof(fullpath)-1); fullpath[sizeof(fullpath)-1]='\0';
+        fname=fullpath+strlen(fullpath)-1;
+        while (fname>fullpath&&*(fname-1)!='\\'&&*(fname-1)!='/') fname--;
+        strncpy(dirname,fullpath,fname-fullpath); dirname[fname-fullpath]='\0';
+        /* resolve directory part to absolute, using executable directory as base */
+        if (dirname[0]) sprintf(dir,"%s\\%s",exdir,dirname);
+        else strcpy(dir,exdir);
+        if (_fullpath(tmp,dir,sizeof(tmp))) strcpy(dir,tmp);
+        /* rebuild full pattern with absolute dir + filename pattern */
+        sprintf(pattern,"%s\\%s",dir,fname);
+        searchpath=pattern;
+    }
+    /* search for either \\ or / as path separator (for cross-platform support) */
+    else if ((p=strrchr(path,'\\'))) {
         strncpy(dir,path,p-path+1); dir[p-path+1]='\0';
     }
-    if ((h=FindFirstFile((LPCTSTR)path,&file))==INVALID_HANDLE_VALUE) {
-        strcpy(paths[0],path);
+    else if ((p=strrchr(path,'/'))) {
+        strncpy(dir,path,p-path+1); dir[p-path+1]='\0';
+    }
+    trace(3,"expath  : dir='%s' searchpath='%s'\n",dir,searchpath);
+    if ((h=FindFirstFile((LPCTSTR)searchpath,&file))==INVALID_HANDLE_VALUE) {
+        strcpy(paths[0],searchpath);
         return 1;
     }
     sprintf(paths[n++],"%s%s",dir,file.cFileName);
