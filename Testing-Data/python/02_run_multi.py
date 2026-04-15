@@ -15,12 +15,12 @@ import sys
 import io
 
 # 设置输入数据集的位置，以及解算结果文件
-DATA_SET = 'dataset'       # 选择数据文件夹
-SOL_TAG = 'spp-df'          # 定位解决方案
+DATA_SET = 'test'       # 选择数据文件夹
+SOL_TAG = 'spp-iflc'          # 定位解决方案
 datapath = '../data/'    # 相对python脚本的路径
 
 # 设置二进制文件和配置文件, 相对python脚本的路径
-# binpath_rtklib  = "../rtklib/rnx2rtkp-test.exe"
+# binpath_rtklib  = "../rtklib/rnx2rtkp-df.exe"
 binpath_rtklib = "D:/Desktop/RTKLIB-VS/Graduation/RTKLIB-PRO/app/consapp/rnx2rtkp/msc/Debug/rnx2rtkp.exe"   
 cfgfile_rtklib = "../config/Hybrid-frequency-spp.conf"
 
@@ -81,8 +81,8 @@ def convert_rnx(args_tuple):
 def run_rtklib(args_tuple):
     binpath_rtklib, cfgfile_rtklib, folder, obsfile, basefile, navfile, solfile = args_tuple
     # 构建命令，只传存在的文件，空文件用 None 跳过
-    # rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile,'-x', '3'] #调试打印trace文件用
-    rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile]
+    rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile,'-x', '3'] #调试打印trace文件用
+    # rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile]
     if basefile:
         rtkcmd.append(basefile)
     rtkcmd.append(navfile)

@@ -1,4 +1,4 @@
-﻿/*------------------------------------------------------------------------------
+/*------------------------------------------------------------------------------
 * rnx2rtkp.c : read rinex obs/nav files and compute receiver positions
 *
 *          Copyright (C) 2007-2016 by T.TAKASU, All rights reserved.

@@ -1654,7 +1654,7 @@ EXPORT void setseleph(int sys, int sel);
 EXPORT int  getseleph(int sys);
 EXPORT void readsp3(const char *file, nav_t *nav, int opt);
 EXPORT int  readsap(const char *file, gtime_t time, nav_t *nav);
-EXPORT int  readdcb(const char *file, nav_t *nav, const sta_t *sta, gtime_t time);
+EXPORT int  readdcb(const char *file, nav_t *nav, const sta_t *sta);
 EXPORT int code2bias_ix(const int sys,const int code);
 /*EXPORT int  readfcb(const char *file, nav_t *nav);*/
 EXPORT void alm2pos(gtime_t time, const alm_t *alm, double *rs, double *dts);

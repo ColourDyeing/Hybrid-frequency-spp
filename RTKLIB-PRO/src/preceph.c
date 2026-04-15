@@ -510,13 +510,11 @@ static int readbiaf(const char *file, nav_t *nav)
 * notes  : supports DCB, BIA, and BSX file formats
          : currently only support P1-P2, P1-C1 bias in DCB file
          : currently only supports satellite biases in BIA/BSX files
-         : now supports time-based path substitution for date-specific DCB files
 *-----------------------------------------------------------------------------*/
-extern int readdcb(const char *file, nav_t *nav, const sta_t *sta, gtime_t time)
+extern int readdcb(const char *file, nav_t *nav, const sta_t *sta)
 {
     int i,j,k,n,dcb_ok=0;
     char *efiles[MAXEXFILE]={0};
-    char patterns[1024],reppath_buf[1024];
 
     trace(3,"readdcb : file=%s\n",file);
 
@@ -531,19 +529,7 @@ extern int readdcb(const char *file, nav_t *nav, const sta_t *sta, gtime_t time)
             return 0;
         }
     }
-    /* handle space-separated multiple patterns */
-    n=0;
-    strncpy(patterns,file,sizeof(patterns)-1); patterns[sizeof(patterns)-1]='\0';
-    {
-        char *tok,*saveptr;
-        for (tok=strtok_r(patterns," \t",&saveptr); tok&&n<MAXEXFILE; tok=strtok_r(NULL," \t",&saveptr)) {
-            /* substitute time placeholders first (e.g. %W, %D, %Y, %n) */
-            reppath(tok,reppath_buf,time,"","");
-            int ni=expath(reppath_buf,efiles+n,MAXEXFILE-n);
-            trace(3,"readdcb : reppath='%s' -> ni=%d\n",reppath_buf,ni);
-            n+=ni;
-        }
-    }
+    n=expath(file,efiles,MAXEXFILE);
 
     for (i=0;i<n;i++) {
         if (strstr(efiles[i],".BIA")||strstr(efiles[i],".bia")||
