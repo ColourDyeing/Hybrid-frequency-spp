@@ -32,11 +32,12 @@
 #define MAX(x,y)    ((x)>=(y)?(x):(y))
 
 #define QZSDT /* enable GPS-QZS time offset estimation */
-#ifdef QZSDT
-#define NX          (4+5)       /* # of estimated parameters */
-#else
-#define NX          (4+4)       /* # of estimated parameters */
-#endif
+/* NX: 统一为10，mask[NX-3]=mask[7]满足所有模式 */
+/* IFLC模式参数: x[3]=GPS_IFLC, x[4]=GPS_BRDC, x[5]=GLO, x[6]=GAL_IFLC, x[7]=GAL_BRDC, x[8]=CMP, x[9]=IRN, 没有QZSS*/
+/* 非IFLC模式参数: x[3]=GPS, x[4]=GLO, x[5]=GAL, x[6]=CMP, x[7]=IRN */
+#define NX          10          /* 统一最大待估参数数量 */
+#define NMASK       8           /* mask数组大小（IFLC需要8个slot） */
+
 #define MAXITR      10          /* max number of iteration for point pos */
 #define ERR_ION     5.0         /* ionospheric delay Std (m) */
 #define ERR_TROP    3.0         /* tropspheric delay Std (m) */
@@ -48,18 +49,19 @@
 # define MAX_GDOP   30          /* max gdop for valid solution  */
 
 /* 计算单个卫星伪距观测值误差方差，用以随机模型定权------------------------------------
- args   :const prcopt_t *opt   I   处理过程选项
-         const ssat_t   *ssat  I   卫星状态
-         const obsd_t   *obs   I   观测量数据
-               double   el     I   卫星高度角 (rad)
-               int      sys    I   卫星系统 (SYS_???)
-               int      f2     I   IFLC第二频率索引（-1表示非IFLC）
+ args   :const prcopt_t *opt      I   处理过程选项
+         const ssat_t   *ssat     I   卫星状态
+         const obsd_t   *obs      I   观测量数据
+               double   el        I   卫星高度角 (rad)
+               int      sys       I   卫星系统 (SYS_???)
+			   int      use_iflc  I   是否使用IFLC组合
+               int      f2        I   IFLC第二频率索引（-1表示非IFLC）
+
  return  : 测量误差方差 (m^2)
 ------------------------------------*/
-static double varerr(const prcopt_t *opt, const ssat_t *ssat, const obsd_t *obs, double el, int sys, int f2)
+static double varerr(const prcopt_t *opt, const ssat_t *ssat, const obsd_t *obs, double el, int sys, int use_iflc, int f2)
 {
     double fact=1.0,varr,snr_rover;
-    double iflc_factor=1.0; /* IFLC模式方差放大因子 */
 
     switch (sys) { // 确定各导航系统误差放大因子
         case SYS_GPS: fact *= EFACT_GPS; break;
@@ -74,26 +76,21 @@ static double varerr(const prcopt_t *opt, const ssat_t *ssat, const obsd_t *obs,
     /* var = R^2*(a^2 + (b^2/sin(el) + c^2*(10^(0.1*(snr_max-snr_rover)))) + (d*rcv_std)^2) */
     varr=SQR(opt->err[1])+SQR(opt->err[2])/sin(el);
     if (opt->err[6]>0.0) {  /* if snr term not zero */
-        snr_rover=obs->SNR[0]!=0?obs->SNR[0]:opt->err[5]; // 直接从观测数据中获取，并转换为 dBHz
+        snr_rover=obs->SNR[0]!=0?obs->SNR[0]:opt->err[5]; // 修改源程序bug：改为直接从观测数据obs中获取snr
         varr+=SQR(opt->err[6])*pow(10,0.1*MAX(opt->err[5]-snr_rover,0));
     }
-    /* 确认是否真正在使用IFLC（双频观测值均存在） */
-    int use_iflc=(opt->ionoopt==IONOOPT_IFLC&&f2>=0&&obs->P[0]!=0.0&&obs->P[f2]!=0.0);
-    int er_ix=use_iflc?f2:0; /* 根据IFLC组合类型选择eratio: f2=1用[1],f2=2用[2] */
+
+    /* 根据组合类型选择eratio */
+    int er_ix=use_iflc?f2:0;
     varr*=SQR(opt->eratio[er_ix]);
 
     if (opt->err[7]>0.0) { // 接收机标准差
         varr+=SQR(opt->err[7]*obs->Pstd[0]);
     }
-    /* 根据IFLC模式和退化情况设置不同方差放大因子 */
-    if (f2>=0) {
-        int has_f2 = (obs->P[f2]!=0.0); // 第二频率是否存在
-        if (has_f2) {
-            /* 标准IFLC：L1-L5组合方差放大约5倍，L1-L2组合方差放大约9倍 */
-            iflc_factor=(f2==2)?SQR(2.2):SQR(3.0);
-        } 
+    /* 根据IFLC模式不同频率组合设置不同方差放大因子 */
+    if (use_iflc) {
+        varr*=(f2==2)?SQR(2.2):SQR(3.0);
     }
-    varr*=iflc_factor;
     return SQR(fact)*varr;
 }
 /* 计算指定卫星的群延迟参数TGD (s→m) ---------------------------------------------
@@ -126,19 +123,18 @@ static double gettgd(int sat, const nav_t *nav, int type)
 args:    const obsd_t   *obs     I   观测量数据
          const double   *azel    I   卫星方位角和高度角 {az,el} (rad)
 		 const prcopt_t *opt     I   处理过程选项
-         int            f2       I   IFLC第二频率索引（-1表示非IFLC）
+		 int            use_iflc I   是否使用IFLC组合
+         int            f2       I   IFLC第二频率索引
 
 return: 1:ok, 0: 拒绝卫星
 ------------------------------------------------------------- */
-static int snrmask(const obsd_t *obs, const double *azel, const prcopt_t *opt, int f2)
+static int snrmask(const obsd_t *obs, const double *azel, const prcopt_t *opt, int use_iflc, int f2)
 {
-    if (testsnr(0, 0, azel[1], obs->SNR[0], &opt->snrmask)) { //第一频点SNR门限检查，若不满足则直接拒绝卫星
+    if (testsnr(0,0,azel[1],obs->SNR[0],&opt->snrmask)) { 
         return 0;
     }
-    if (opt->ionoopt==IONOOPT_IFLC && f2>=0) {
-        /* 只在第二频点观测值存在时才检查其SNR门限，避免L5缺失导致卫星被误拒 */
-        if (obs->SNR[f2]>0.0 &&
-            testsnr(0,f2,azel[1],obs->SNR[f2],&opt->snrmask)) return 0;
+    if (use_iflc) {
+        if (testsnr(0,f2,azel[1],obs->SNR[f2],&opt->snrmask)) return 0;
     }
     return 1;
 }
@@ -146,37 +142,34 @@ static int snrmask(const obsd_t *obs, const double *azel, const prcopt_t *opt, i
 args:  const obsd_t      *obs     I   观测量数据
        const nav_t       *nav     I   导航数据
        const prcopt_t    *opt     I   处理过程选项
-             int          f2      I   IFLC第二频率索引（-1表示非IFLC）
+			 int         use_iflc I   是否使用IFLC组合
+             int          f2      I   IFLC第二频率索引
 	         double      *var     O   伪距差分码偏差DCB校正的方差 (m^2)
 
 return: 伪距差分码偏差DCB校正后的伪距值 (m)
 ------------------------------------------------------------- */
-static double prange(const obsd_t *obs, const nav_t *nav, const prcopt_t *opt, int f2,
+static double prange(const obsd_t *obs, const nav_t *nav, const prcopt_t *opt, int use_iflc, int f2,
                      double *var)
 {
     double P1,P2=0.0,gamma,b1,b2;
-	int sat,sys,bias_ix,use_iflc;
+	int sat,sys,bias_ix;
 
 	sat=obs->sat; // 卫星编号
 	sys=satsys(sat,NULL); // 卫星系统
 	P1=obs->P[0];
-	if (f2>=0) P2=obs->P[f2];
+	if (use_iflc) P2=obs->P[f2];
 	*var=0.0;
 
-	if (P1==0.0 && (f2<0 || P2==0.0)) return 0.0; /* L1和L5均不存在则跳过 */
-
-	use_iflc = (opt->ionoopt==IONOOPT_IFLC && f2>=0 && P1!=0.0 && P2!=0.0); // 确认是否真的使用IFLC
+	if (P1==0.0) return 0.0; /* L1不存在则跳过 */
 
     /* SPP中，导航电文（广播星历）没有DCB参数 */
 	/* DCB校正：L1 DCB校正 */
-	if (P1!=0.0) {
-		bias_ix=code2bias_ix(sys,obs->code[0]);  /* L1 DCB校正 */
-		if (bias_ix>0) { /* 若为0代表为基准，无需校正 */
-			P1+=nav->cbias[sat-1][0][bias_ix-1];
-		}
+	bias_ix=code2bias_ix(sys,obs->code[0]);  /* L1 DCB校正 */
+	if (bias_ix>0) { /* 若为0代表为基准，无需校正 */
+		P1+=nav->cbias[sat-1][0][bias_ix-1];
 	}
     /* DCB校正：L2/L5 DCB校正 */
-    if (f2>=0&&P2!=0.0) {
+    if (use_iflc) {
         bias_ix=code2bias_ix(sys,obs->code[f2]);
         if (bias_ix>0) { 
             P2+=nav->cbias[sat-1][1][bias_ix-1]; // double[204][2][3]
@@ -225,41 +218,9 @@ static double prange(const obsd_t *obs, const nav_t *nav, const prcopt_t *opt, i
         }
     }
 
-    /* 单频处理：IFLC模式缺失L5时退化，或仅有L5/L1频段 */
+    /* 单频处理：IFLC模式缺失L5时退化，或仅有L1频段 */
     else {
         *var = SQR(ERR_CBIAS); // 单频的未建模误差(Code Bias等)，因此方差设置为一个较大的值以降低其权重
-
-        /* 标准单频TGD校正（L5） */
-        if (P2!=0.0 && P1==0.0) {
-            /* 仅L5存在时：退化单频L5消电离层处理（智能手机仅支持L5频段情况） */
-            if (sys==SYS_GPS||sys==SYS_QZS) {
-                ///* GPS/QZS 星历钟差基于 L1/L2 无电离层组合。
-                //   L5 需同时修正 TGD (L1-L2 IF基准) 和 ISC_L5 (L1-L5偏差) */
-                //double tgd = gettgd(sat, nav, 0); /* TGD:L5→L2 */
-                //double isc = gettgd(sat, nav, 1); /* TGD:L2→L1 */
-                //return P2 - tgd - isc;
-				return P2; // 广播星历通常无L5 TGD参数，因此不进行TGD校正
-            }
-            else if (sys == SYS_GLO) { /* G3 */
-                return P2; /* GLONASS G3通常没有TGD参数，因此不校正*/
-            }
-            else if (sys == SYS_GAL) {
-                /* Galileo 星历钟差基于 E1-E5a/E5b 无电离层组合，单频 E5a/E5b 需乘 gamma 补偿 BGD */
-                if (getseleph(SYS_GAL)) { /* F/NAV 以 E1-E5a 为基准 */
-                    gamma = SQR(FREQL1 / FREQL5);
-                    b1 = gettgd(sat, nav, 0); /* BGD(E1,E5a) */
-                }
-                else {                  /* I/NAV 以 E1-E5b 为基准 */
-                    gamma = SQR(FREQL1 / FREQE5b);
-                    b1 = gettgd(sat, nav, 1); /* BGD(E1,E5b) */
-                }
-                return P2 - gamma * b1;
-            }
-            else if (sys==SYS_CMP) { /* B2a */
-                b1=gettgd(sat,nav,3); /* TGD_B2I_B2bI */
-                return P2-b1;
-            }
-        }
 
         /* 标准单频TGD校正（L1） */
         if (sys==SYS_GPS||sys==SYS_QZS) { /* L1 */
@@ -399,7 +360,7 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
 {
     gtime_t time;
     double r,freq,dion=0.0,dtrp=0.0,vmeas,vion=0.0,vtrp=0.0,rr[3],pos[3],dtr,e[3],P;
-	int i,j,nv=0,sat,sys,mask[NX-3]={0},f2; // nv表示有效观测数（计数器）；mask数组用于标记不同导航系统的时间偏差是否被处理过
+	int i,j,nv=0,sat,sys,mask[NMASK]={0},f2; // nv表示有效观测数（计数器）；mask数组用于标记不同导航系统的时间偏差是否被处理过
 
     //将之前得到的定位解信息赋值给rr和dtr数组
     for (i=0;i<3;i++) rr[i]=x[i];
@@ -414,7 +375,8 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
         time=obs[i].time; // 时间
         sat=obs[i].sat; // 卫星编号
         if (!(sys=satsys(sat,NULL))) continue; //1.调用satsys()函数，验证卫星编号是否合理，查找其所属的导航系统
-        f2=(opt->ionoopt==IONOOPT_IFLC)?seliflc(opt->nf,sys):-1; // 确定IFLC第二频率索引，在循环开始处确定以供全程使用
+        f2=seliflc(opt->nf,sys);
+        int use_iflc=(opt->ionoopt==IONOOPT_IFLC&&obs[i].P[0]!=0.0&&obs[i].P[f2]!=0.0);
         
         // 剔除重复的观测数据
         if (i<n-1&&i<MAXOBS-1&&sat==obs[i+1].sat) {
@@ -425,6 +387,18 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
         }
         /* 2.排除事先指定的卫星 */
         if (satexclude(sat,vare[i],svh[i],opt)) continue;
+
+        if (opt->ionoopt==IONOOPT_IFLC) {
+            if (obs[i].P[0]==0.0) {
+                /* 缺失L1频率：跳过该卫星 */
+                trace(3,"sat=%2d skipped: missing L1 freq\n",sat);
+                continue;
+            }
+            if (obs[i].P[f2]==0.0) {
+                /* 有L1但缺失L5：退化单频模式，use_iflc保持为0 */
+                trace(3,"sat=%2d: use_iflc=0 (L5 missing, single-freq BRDC mode)\n",sat);
+            }
+        }
         
         /* 3-4.卫星与接收机之间几何距离和高度角mask */
         if ((r=geodist(rs+i*6,rr,e))<=0.0) continue;
@@ -432,27 +406,23 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
         
         if (iter>0) { // 第一次迭代时候缺少定位数据，强行经过下面修正会产生巨大误差
             /* 5.test SNR mask */
-            if (!snrmask(obs+i,azel+i*2,opt,f2)) continue;
+            if (!snrmask(obs+i,azel+i*2,opt,use_iflc,f2)) continue;
 
 			/* 6.电离层校正 */
-			/* 若为IFLC模式但缺失任一频率，退化为BRDC模型进行单频补偿 */
-			int use_iflc=(opt->ionoopt==IONOOPT_IFLC&&f2>=0&obs[i].P[0]!=0.0&&obs[i].P[f2]!=0.0);
-			int ionoopt_cur=(opt->ionoopt==IONOOPT_IFLC&&!use_iflc)?IONOOPT_BRDC:opt->ionoopt;
-
-			if (ionoopt_cur != IONOOPT_IFLC) { // 单频电离层校正，或IFLC模式退化为单频处理
-				if (!ionocorr(time,nav,sat,pos,azel+i*2,ionoopt_cur,&dion,&vion)) {
+			if (use_iflc) {
+				/* IFLC正常模式：无电离层组合本身已消除一阶电离层延迟，无需额外修正 */
+				dion=0.0;
+				vion=0.0;
+			} else {
+				/* 标准单频电离层校正（如BRDC/SBAS/TEC），包含IFLC退化为单频的情况 */
+				int iono_opt = (opt->ionoopt==IONOOPT_IFLC) ? IONOOPT_BRDC : opt->ionoopt;
+				if (!ionocorr(time,nav,sat,pos,azel+i*2,iono_opt,&dion,&vion)) {
 					continue;
 				}
-				/* 单频以实际使用的频率为基准 */
-				uint8_t curr_code = obs[i].code[0];
-				if (obs[i].P[0] == 0.0 && f2>=0 && obs[i].P[f2] != 0.0) {
-					curr_code = obs[i].code[f2];
-				}
-				if ((freq=sat2freq(sat,curr_code,nav))==0.0) continue;
-				dion*=SQR(FREQL1/freq);
-				vion*=SQR(SQR(FREQL1/freq));
-			} else {
-				dion=0.0; vion=0.0; // IFLC
+            if ((freq=sat2freq(sat,obs[i].code[0],nav))==0.0) continue;
+            /* Convert from FREQL1 to freq */
+            dion*=SQR(FREQL1/freq);
+            vion*=SQR(SQR(FREQL1/freq));
 			}
 
             /* 7.对流层校正 */
@@ -461,44 +431,97 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
         }
             }
         /* 8.计算校正伪距（DCB、IFLC、TGD） */
-        if ((P=prange(obs+i,nav,opt,f2,&vmeas))==0.0) continue;
+        if ((P=prange(obs+i,nav,opt,use_iflc,f2,&vmeas))==0.0) continue;
 
         /* 9.计算此时伪距残差，累加测距误差 */
+        // IFLC双钟差模式（GPS/GAL各独立IFLC和BRDC钟差）：
+        // - GPS双频IFLC卫星：使用x[3]
+        // - GPS单频BRDC卫星：使用x[4]
+        // - GAL双频IFLC卫星：使用x[6]
+        // - GAL单频BRDC卫星：使用x[7]
+        // - 其他导航系统：使用各自的时钟参数
+        double dtr_cur;
+        if (opt->ionoopt==IONOOPT_IFLC) {
+            if (sys==SYS_GPS) {
+                dtr_cur = use_iflc ? x[3] : x[4];
+            } else if (sys==SYS_GAL) {
+                dtr_cur = use_iflc ? x[6] : x[7];
+            } else {
+                dtr_cur = x[3]; // GLO/CMP/IRN/QZS: 使用GPS基准钟差
+            }
+        } else {
+            dtr_cur = x[3]; // 非IFLC模式：所有系统统一使用x[3]作为接收机钟差
+        }
         // 计算伪距残差(P-(r+c*dtr-c*dts+I+T)),程序中dtr单位为m
-        v[nv]=P-(r+dtr-CLIGHT*dts[i*2]+dion+dtrp);
+        v[nv]=P-(r+dtr_cur-CLIGHT*dts[i*2]+dion+dtrp);
         trace(3,"sat=%d: v=%.3f P=%.3f r=%.3f dtr=%.6f dts=%.6f dion=%.3f dtrp=%.3f\n",
-            sat,v[nv],P,r,dtr,dts[i*2],dion,dtrp);
+            sat,v[nv],P,r,dtr_cur,dts[i*2],dion,dtrp);
        
         // 10.设计矩阵
         for (j=0;j<NX;j++) {
-            H[j+nv*NX]=j<3?-e[j]:(j==3?1.0:0.0); // 前3列是坐标改正数（赋卫星与接收机之间的单位矢量），第四列是GPS钟差（赋1），后面是不同导航系统之间的时间偏差（赋初值0）
+            H[j+nv*NX]=j<3?-e[j]:0.0; // 前3列是坐标改正数（赋卫星与接收机之间的单位矢量）
         }
-        // 处理不同导航系统之间的时间偏差（伪距残差减去与基准GPS的接收机钟差），修改矩阵 H
-        if      (sys==SYS_GLO) {v[nv]-=x[4]; H[4+nv*NX]=1.0; mask[1]=1;}
-        else if (sys==SYS_GAL) {v[nv]-=x[5]; H[5+nv*NX]=1.0; mask[2]=1;}
-        else if (sys==SYS_CMP) {v[nv]-=x[6]; H[6+nv*NX]=1.0; mask[3]=1;}
-        else if (sys==SYS_IRN) {v[nv]-=x[7]; H[7+nv*NX]=1.0; mask[4]=1;}
+        // 处理接收机钟差和系统时钟偏差
+        // IFLC模式：GPS/GAL各使用独立的IFLC/BRDC钟差参数
+        // 非IFLC模式：所有系统钟差相对于GPS（与旧版本兼容）
+        if (opt->ionoopt==IONOOPT_IFLC) {
+            // IFLC模式：所有卫星的GPS钟差列初始为0，再根据use_iflc条件设置正确的钟差参数
+            H[3+nv*NX]=0.0; // GPS IFLC钟差列初始为0
+            H[4+nv*NX]=0.0; // GPS BRDC钟差列初始为0
+            if (sys==SYS_GPS) {
+                H[(use_iflc?3:4)+nv*NX]=1.0;
+                mask[use_iflc?0:1]=1; // mask[0]=GPS_IFLC, mask[1]=GPS_BRDC
+            }
+            else if (sys==SYS_GAL) {
+                H[(use_iflc?6:7)+nv*NX]=1.0;
+                mask[use_iflc?3:4]=1; // mask[3]=GAL_IFLC, mask[4]=GAL_BRDC
+            }
+            else if (sys==SYS_GLO) {
+                v[nv]-=x[5]; H[5+nv*NX]=1.0; mask[2]=1;
+            }
+            else if (sys==SYS_CMP) {
+                v[nv]-=x[8]; H[8+nv*NX]=1.0; mask[5]=1;
+            }
+            else if (sys==SYS_IRN) {
+                v[nv]-=x[9]; H[9+nv*NX]=1.0; mask[6]=1;
+            }
 #ifdef QZSDT
-        else if (sys==SYS_QZS) {v[nv]-=x[8]; H[8+nv*NX]=1.0; mask[5]=1;}
+            else if (sys==SYS_QZS) {
+                v[nv]-=x[9]; H[9+nv*NX]=1.0; mask[6]=1;
+            }
 #endif
-        else mask[0]=1; // GPS
+        } else {
+            // 非IFLC模式：所有卫星的GPS钟差列初始为1.0（与旧版本兼容）
+            H[3+nv*NX]=1.0; // GPS接收机钟差列：所有卫星都有
+            if      (sys==SYS_GLO) {v[nv]-=x[4]; H[4+nv*NX]=1.0; mask[1]=1;}
+            else if (sys==SYS_GAL) {v[nv]-=x[5]; H[5+nv*NX]=1.0; mask[2]=1;}
+            else if (sys==SYS_CMP) {v[nv]-=x[6]; H[6+nv*NX]=1.0; mask[3]=1;}
+            else if (sys==SYS_IRN) {v[nv]-=x[7]; H[7+nv*NX]=1.0; mask[4]=1;}
+#ifdef QZSDT
+            else if (sys==SYS_QZS) {v[nv]-=x[8]; H[8+nv*NX]=1.0; mask[5]=1;}
+#endif
+            else mask[0]=1; // GPS: 基准钟差，H[3]=1.0已在上面设置
+        }
 
         vsat[i]=1; resp[i]=v[nv]; (*ns)++;
         
         // 11.计算用户测距总方差，用以随机模型定权
         var[nv]=vare[i]+vmeas+vion+vtrp;
         if (ssat)
-            var[nv++]+=varerr(opt,&ssat[i],&obs[i],azel[1+i*2],sys,f2);
+            var[nv++]+=varerr(opt,&ssat[i],&obs[i],azel[1+i*2],sys,use_iflc,f2);
         else
-            var[nv++]+=varerr(opt,NULL,&obs[i],azel[1+i*2],sys,f2);
+            var[nv++]+=varerr(opt,NULL,&obs[i],azel[1+i*2],sys,use_iflc,f2);
         trace(3,"sat=%2d azel=%5.1f %4.1f res=%7.3f sig=%5.3f\n",obs[i].sat,
               azel[i*2]*R2D,azel[1+i*2]*R2D,resp[i],sqrt(var[nv-1]));
     }
-    // 为防止不满秩，检查是否有缺失的导航系统，若有进行下述处理，以防止矩阵H秩亏
-    for (i=0;i<NX-3;i++) {
-		if (mask[i]) continue; // 表示该导航系统的时间偏差已经被处理过了（有该系统），跳过
-        v[nv]=0.0; // 否则就（新增一个观测方程）伪距残差设置为0，设计矩阵设置为1，方差设置为0.01以补满秩
-        for (j=0;j<NX;j++) H[j+nv*NX]=j==i+3?1.0:0.0; // 新增的方程代表的意思就是接收机的这个导航系统钟差为0
+    // 为防止不满秩，检查是否有缺失的导航系统
+    // mask布局（NMASK=NX-3个时钟参数）：
+    //   mask[0]=GPS_IFLC  mask[1]=GPS_BRDC  mask[2]=GLO
+    //   mask[3]=GAL_IFLC  mask[4]=GAL_BRDC  mask[5]=CMP  mask[6]=IRN
+    for (i=0;i<NMASK;i++) {
+		if (mask[i]) continue;
+        v[nv]=0.0;
+        for (j=0;j<NX;j++) H[j+nv*NX]=j==i+3?1.0:0.0;
         var[nv++]=0.01;
     }
 	return nv; // 返回有效观测数
@@ -608,14 +631,28 @@ static int estpos(const obsd_t *obs, int n, const double *rs, const double *dts,
             sol->type=0;
 			// dtr：接收机钟差(秒)，x[i]单位是m，因此需要除以光速CLIGHT将其转换为秒
 			sol->time = timeadd(obs[0].time, -x[3] / CLIGHT); // 接收机时间 = 观测时间 - 接收机钟差
-            sol->dtr[0]=x[3]/CLIGHT; /* receiver clock bias (s) */
-            sol->dtr[1]=x[4]/CLIGHT; /* GLO-GPS time offset (s) */
-            sol->dtr[2]=x[5]/CLIGHT; /* GAL-GPS time offset (s) */
-            sol->dtr[3]=x[6]/CLIGHT; /* BDS-GPS time offset (s) */
-            sol->dtr[4]=x[7]/CLIGHT; /* IRN-GPS time offset (s) */
+            if (opt->ionoopt==IONOOPT_IFLC) {
+                /* IFLC模式 */
+                sol->dtr[0]=x[3]/CLIGHT;     /* GPS receiver clock bias (IFLC) */
+                sol->dtr[1]=x[4]/CLIGHT;     /* GPS BRDC clock bias */
+                sol->dtr[2]=x[5]/CLIGHT;     /* GLO-GPS time offset */
+                sol->dtr[3]=x[6]/CLIGHT;     /* GAL receiver clock bias (IFLC) */
+                sol->dtr[4]=x[7]/CLIGHT;     /* GAL BRDC clock bias */
+                sol->dtr[5]=x[8]/CLIGHT;     /* BDS-GPS time offset */
+                sol->dtr[6]=x[9]/CLIGHT;     /* IRN-GPS time offset */
+            } else {
+                /* 非IFLC模式（与旧版本兼容） */
+                sol->dtr[0]=x[3]/CLIGHT;     /* receiver clock bias (s) */
+                sol->dtr[1]=x[4]/CLIGHT;     /* GLO-GPS time offset (s) */
+                sol->dtr[2]=x[5]/CLIGHT;     /* GAL-GPS time offset (s) */
+                sol->dtr[3]=x[6]/CLIGHT;     /* BDS-GPS time offset (s) */
+                sol->dtr[4]=x[7]/CLIGHT;     /* IRN-GPS time offset (s) */
 #ifdef QZSDT
-            sol->dtr[5]=x[8]/CLIGHT; /* QZS-GPS time offset (s) */
+                sol->dtr[5]=x[8]/CLIGHT;    /* QZS-GPS time offset (s) */
 #endif
+            }
+            trace(3,"estpos  : x=%.3f %.3f %.3f dtr_gps_iflc=%.6f dtr_gps_brdc=%.6f dtr_glo=%.6f dtr_gal_iflc=%.6f dtr_gal_brdc=%.6f\n",
+                  x[0],x[1],x[2],x[3]/CLIGHT,x[4]/CLIGHT,x[5]/CLIGHT,x[6]/CLIGHT,x[7]/CLIGHT);
             for (j=0;j<6;j++) sol->rr[j]=j<3?x[j]:0.0;
             for (j=0;j<3;j++) sol->qr[j]=(float)Q[j+j*NX];
             sol->qr[3]=(float)Q[1];    /* cov xy */
