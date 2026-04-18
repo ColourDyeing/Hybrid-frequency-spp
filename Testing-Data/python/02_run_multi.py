@@ -15,7 +15,7 @@ import sys
 import io
 
 # 设置输入数据集的位置，以及解算结果文件
-DATA_SET = 'test'       # 选择数据文件夹
+DATA_SET = 'dataset'       # 选择数据文件夹
 SOL_TAG = 'spp-iflc'          # 定位解决方案
 datapath = '../data/'    # 相对python脚本的路径
 

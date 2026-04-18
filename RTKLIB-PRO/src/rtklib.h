@@ -665,7 +665,7 @@ typedef struct {        /* GPS/QZS/GAL broadcast ephemeris type */
     double fit;         /* fit interval (h) */
     double f0,f1,f2;    /* SV clock parameters (af0,af1,af2) */
     double tgd[6];      /* group delay parameters */
-                        /* GPS/QZS:tgd[0]=TGD */
+                        /* GPS/QZS:tgd[0]=TGD_L1L2 , tgd[5]=BGD_L1L5 */
                         /* GAL:tgd[0]=BGD_E1E5a,tgd[1]=BGD_E1E5b */
                         /* CMP:tgd[0]=TGD_B1I ,tgd[1]=TGD_B2I/B2b,tgd[2]=TGD_B1Cp */
                         /*     tgd[3]=TGD_B2ap,tgd[4]=ISC_B1Cd   ,tgd[5]=ISC_B2ad */

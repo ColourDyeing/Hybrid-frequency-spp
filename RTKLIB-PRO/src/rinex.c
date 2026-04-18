@@ -1210,7 +1210,8 @@ static int decode_eph(double ver, int sat, gtime_t toc, const double *data,
         eph->sva=uraindex(data[23]);  /* URA index (m->index) */
         eph->flag=(int)data[22];      /* GPS: L2 P data flag */
 
-        eph->tgd[0]=   data[25];      /* TGD */
+        eph->tgd[0]=   data[25];      /* TGD: L1-L2 (s) */
+        //eph->tgd[5]= data[32];     /* BGD: L1C/A-L5Q (s) */
         if (sys==SYS_GPS) {
             eph->fit=data[28];        /* fit interval (h) */
         }
@@ -1444,7 +1445,8 @@ static int readrnxnavb(FILE *fp, const char *opt, double ver, int sys,
                 *type=2;
                 return decode_seph(ver,sat,toc,data,seph);
             }
-            else if (i>=31) {
+            //else if (i>=33) {
+            else if (i>=31) {  
                 if (!(mask&sys)) return 0;
                 *type=0;
                 return decode_eph(ver,sat,toc,data,eph);
