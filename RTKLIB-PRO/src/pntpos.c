@@ -418,7 +418,7 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
 				vion=0.0;
 			} else {
 				/* 标准单频电离层校正（如BRDC/SBAS/TEC），包含IFLC退化为单频的情况 */
-				int iono_opt = (opt->ionoopt==IONOOPT_IFLC) ? IONOOPT_BRDC : opt->ionoopt;
+				int iono_opt=(opt->ionoopt==IONOOPT_IFLC)?IONOOPT_BRDC:opt->ionoopt;
 				if (!ionocorr(time,nav,sat,pos,azel+i*2,iono_opt,&dion,&vion)) {
 					continue;
 				}
@@ -446,14 +446,14 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
         double dtr_cur;
         if (opt->ionoopt==IONOOPT_IFLC) {
             if (sys==SYS_GPS) {
-                dtr_cur = use_iflc ? x[3] : x[4];
+                dtr_cur=use_iflc?x[3]:x[4];
             } else if (sys==SYS_GAL) {
-                dtr_cur = use_iflc ? x[6] : x[7];
+                dtr_cur=use_iflc?x[6]:x[7];
             } else {
-                dtr_cur = x[3]; /* GLO/CMP/IRN/QZS: 使用GPS基准钟差 */ 
+                dtr_cur=x[3]; /* GLO/CMP/IRN/QZS: 使用GPS基准钟差 */ 
             }
         } else {
-            dtr_cur = x[3]; /* 非IFLC模式：所有系统统一使用x[3]作为接收机钟差 */
+            dtr_cur=x[3]; /* 非IFLC模式：所有系统统一使用x[3]作为接收机钟差 */
         }
         /* 计算伪距残差(P - (r + c * dtr - c * dts + I + T)), 程序中dtr单位为m */ 
         v[nv]=P-(r+dtr_cur-CLIGHT*dts[i*2]+dion+dtrp);
@@ -479,19 +479,11 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
                 H[(use_iflc?6:7)+nv*NX]=1.0;
                 mask[use_iflc?3:4]=1; /* mask[3]=GAL_IFLC, mask[4]=GAL_BRDC */
             }
-            else if (sys==SYS_GLO) {
-                v[nv]-=x[5]; H[5+nv*NX]=1.0; mask[2]=1;
-            }
-            else if (sys==SYS_CMP) {
-                v[nv]-=x[8]; H[8+nv*NX]=1.0; mask[5]=1;
-            }
-            else if (sys==SYS_IRN) {
-                v[nv]-=x[9]; H[9+nv*NX]=1.0; mask[6]=1;
-            }
+            else if (sys==SYS_GLO) {v[nv]-=x[5]; H[5+nv*NX]=1.0; mask[2]=1;}
+            else if (sys==SYS_CMP) {v[nv]-=x[8]; H[8+nv*NX]=1.0; mask[5]=1;}
+            else if (sys==SYS_IRN) {v[nv]-=x[9]; H[9+nv*NX]=1.0; mask[6]=1;}
 #ifdef QZSDT
-            else if (sys==SYS_QZS) {
-                v[nv]-=x[9]; H[9+nv*NX]=1.0; mask[6]=1;
-            }
+            else if (sys==SYS_QZS) {v[nv]-=x[9]; H[9+nv*NX]=1.0; mask[6]=1;}
 #endif
         } else {
             /* 非IFLC模式：所有卫星的GPS钟差列初始为1.0（与旧版本兼容） */
