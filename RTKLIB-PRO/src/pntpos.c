@@ -617,43 +617,27 @@ static int estpos(const obsd_t *obs, int n, const double *rs, const double *dts,
         for (j=0;j<NX;j++) { // 更新估计参数
             x[j]+=dx[j];
         }
-        /* 如果求得的待估参数变化量小于截断因子(目前是1E - 4)，则将x[j]作为最终的定位结果，
+        /* 如果求得的待估参数变化量小于截断因子(目前是1E-4)，则将x[j]作为最终的定位结果，
          对 sol 的相应参数赋值,之后再调用 valsol 函数确认当前解是否符合要求,参考 RTKLIB Manual P162
          否则，进行下一次循环。*/
         if (norm(dx,NX)<1E-4) {
             sol->type=0;
-			/* dtr：接收机钟差(秒)，x[i]单位是m，因此需要除以光速CLIGHT将其转换为秒 */
+            sol->time=timeadd(obs[0].time,-x[3]/CLIGHT);
+            sol->dtr[0]=x[3]/CLIGHT; /* receiver clock bias (s) */
+            sol->dtr[1]=x[4]/CLIGHT; /* GLO-GPS time offset (s) */
+            sol->dtr[2]=x[5]/CLIGHT; /* GAL-GPS time offset (s) */
+            sol->dtr[3]=x[6]/CLIGHT; /* BDS-GPS time offset (s) */
+            sol->dtr[4]=x[7]/CLIGHT; /* IRN-GPS time offset (s) */
+#ifdef QZSDT
+            sol->dtr[5]=x[8]/CLIGHT; /* QZS-GPS time offset (s) */
+#endif
             if (opt->ionoopt==IONOOPT_IFLC) {
-                /* IFLC模式（统一以GPS BRDC x[3]为基准）：
-                dtr[0] = GPS_BRDC基准钟差 = x[3]
-                dtr[1] = GLO接收机钟差 = x[3]+x[4]
-                dtr[2] = GAL接收机钟差 = x[3]+x[5]
-                dtr[3] = CMP接收机钟差 = x[3]+x[6]
-                dtr[4] = IRN接收机钟差 = x[3]+x[7]
-                dtr[5] = QZS接收机钟差 = x[3]+x[8]
-                dtr[6] = GPS_IFLC接收机钟差 = x[3]+x[9]
-                dtr[7] = GAL_IFLC接收机钟差 = x[3]+x[10] */
-                sol->time = timeadd(obs[0].time, -x[3] / CLIGHT);
-                sol->dtr[0]=x[3]/CLIGHT;
-                sol->dtr[1]=(x[3]+x[4])/CLIGHT;
-                sol->dtr[2]=(x[3]+x[5])/CLIGHT;
-                sol->dtr[3]=(x[3]+x[6])/CLIGHT;
-                sol->dtr[4]=(x[3]+x[7])/CLIGHT;
-                sol->dtr[5]=(x[3]+x[8])/CLIGHT;
-                sol->dtr[6]=(x[3]+x[9])/CLIGHT;
-                sol->dtr[7]=(x[3]+x[10])/CLIGHT;
-            } else {
-                /* 非IFLC模式（与旧版本兼容） */
-                sol->time = timeadd(obs[0].time, -x[3] / CLIGHT);
-                sol->dtr[0]=x[3]/CLIGHT;     /* receiver clock bias (s) */
-                sol->dtr[1]=x[4]/CLIGHT;     /* GLO-GPS time offset (s) */
-                sol->dtr[2]=x[5]/CLIGHT;     /* GAL-GPS time offset (s) */
-                sol->dtr[3]=x[6]/CLIGHT;     /* BDS-GPS time offset (s) */
-                sol->dtr[4]=x[7]/CLIGHT;     /* IRN-GPS time offset (s) */
-                sol->dtr[5]=x[8]/CLIGHT;     /* QZS-GPS time offset (s) */
+                sol->dtr[6]=x[9]/CLIGHT;  /* GPS_IFLC-GPS clock bias (s) */
+                sol->dtr[7]=x[10]/CLIGHT; /* GAL_IFLC-GPS clock bias (s) */
             }
             trace(3,"estpos  : x=%.3f %.3f %.3f dtr_gps_brdc=%.6f dtr_glo=%.6f dtr_gal=%.6f dtr_cmp=%.6f dtr_irn=%.6f dtr_qzs=%.6f dtr_gps_iflc=%.6f dtr_gal_iflc=%.6f\n",
                   x[0],x[1],x[2],x[3]/CLIGHT,x[4]/CLIGHT,x[5]/CLIGHT,x[6]/CLIGHT,x[7]/CLIGHT,x[8]/CLIGHT,x[9]/CLIGHT,x[10]/CLIGHT);
+
             for (j=0;j<6;j++) sol->rr[j]=j<3?x[j]:0.0;
             for (j=0;j<3;j++) sol->qr[j]=(float)Q[j+j*NX];
             sol->qr[3]=(float)Q[1];    /* cov xy */

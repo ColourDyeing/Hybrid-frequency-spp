@@ -912,7 +912,7 @@ typedef struct {        /* solution type */
                         /* {c_xx,c_yy,c_zz,c_xy,c_yz,c_zx} or */
                         /* {c_ee,c_nn,c_uu,c_en,c_nu,c_ue} */
     float  qv[6];       /* velocity variance/covariance (m^2/s^2) */
-    double dtr[6];      /* receiver clock bias to time systems (s) */
+    double dtr[8];      /* receiver clock bias to time systems (s) */
     uint8_t type;       /* type (0:xyz-ecef,1:enu-baseline) */
     uint8_t stat;       /* solution status (SOLQ_???) */
     uint8_t ns;         /* number of valid satellites */
