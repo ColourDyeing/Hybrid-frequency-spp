@@ -113,6 +113,9 @@ static double gettgd(int sat, const nav_t *nav, int type)
         return (i>=nav->ng)?0.0:-nav->geph[i].dtaun*CLIGHT;
     }
     else {
+        /* ???????BIA????????TGD??????????????TGD */
+        double tgd_bia=nav->tgd_bia[sat-1][type];
+        if (tgd_bia!=0.0) return tgd_bia*CLIGHT; /* BIA-derived TGD???? */
         for (i=0;i<nav->n;i++) {
             if (nav->eph[i].sat==sat) break;
         }
@@ -167,25 +170,43 @@ static double prange(const obsd_t *obs, const nav_t *nav, const prcopt_t *opt, i
 	bias_ix=code2bias_ix(sys,obs->code[0]);  /* L1 DCB校正 */
 	if (bias_ix>0) { /* 若为0代表为基准，无需校正 */
 		P1+=nav->cbias[sat-1][0][bias_ix-1];
+        trace(3,"prange: sat=%3d sys=%d code=%d bias_ix=%d dcb=%7.3f\n",sat,sys,obs->code[0],bias_ix,nav->cbias[sat-1][0][bias_ix-1]);
 	}
     /* L2/L5 DCB校正 */
     if (use_iflc) {
-        bias_ix=code2bias_ix(sys,obs->code[f2]);
-        if (bias_ix>0) { 
-            P2+=nav->cbias[sat-1][1][bias_ix-1]; // double[204][2][3]
+        int f2_bias_ix=code2bias_ix(sys,obs->code[f2]);
+        int f2_freq; /* ???????????????????? */
+        if (sys==SYS_GPS||sys==SYS_QZS) {
+            f2_freq=f2==1?1:2; /* f2==1(L2)->freq1, f2!=1(L5)->freq2 */
+        } else if (sys==SYS_GAL) {
+            /* GAL: freq=0(E1), freq=1(E5a), freq=2(E5b), freq=3(E6) */
+            /* RTKLIB??f2==1???E5b, f2!=1???E5a */
+            f2_freq=f2==1?2:1;
+        } else if (sys==SYS_CMP) {
+            /* CMP: freq=0(B1), freq=1(B2), freq=2(B3), freq=3(B2a) */
+            f2_freq=f2==1?1:3; /* ????B2->freq1, B2a->freq3 */
+        } else {
+            f2_freq=1; /* ??? */
+        }
+        if (f2_bias_ix>0) {
+            P2+=nav->cbias[sat-1][f2_freq][f2_bias_ix-1];
+            trace(3,"prange: sat=%3d sys=%d code=%d freq=%d bias_ix=%d dcb=%7.3f\n",sat,sys,obs->code[f2],f2_freq,f2_bias_ix,nav->cbias[sat-1][f2_freq][f2_bias_ix-1]);
         }
     }
 
     /* 构建IFLC，TGD校正 */
     if (use_iflc) {
         if (sys==SYS_GPS||sys==SYS_QZS) { /* L1-L2 or L1-L5 */
-            gamma=f2==1?SQR(FREQL1/FREQL2):SQR(FREQL1/FREQL5);
-            if (f2!=1) { /* L1-L5组合偏离了星历钟差的L1-L2基准，需要修正 */
-                b1=gettgd(sat,nav,0);
-                b2=gettgd(sat,nav,1);
-                if (b1!=0&&b2!=0) {
-                    return((P2-gamma*P1)-(b2-gamma*b1))/(1.0-gamma);
-                }
+            if (f2==1) { /* L1-L2 */
+                return (P2-SQR(FREQL1/FREQL2)*P1)/(1.0-SQR(FREQL1/FREQL2));
+            }
+            gamma=SQR(FREQL1/FREQL5);
+            b1=gettgd(sat,nav,0); /* TGD_L1L2 (s) */
+            b2=gettgd(sat,nav,5); /* TGD_L1L5 (s) */
+            trace(3,"prange: sat=%2d L1-L5 gamma=%.6f b1=%.3f b2=%.3f TGD_corr=%.3f\n",
+                  sat,gamma,b1,b2,b2-gamma*b1);
+            if (b1!=0.0||b2!=0.0) {
+                return (P2-gamma*P1+(b2-gamma*b1))/(1.0-gamma);
             }
             /* GPS/QZS L1-L2无需TGD校正（星历钟差基准一致） */
             return (P2-gamma*P1)/(1.0-gamma);
@@ -195,15 +216,21 @@ static double prange(const obsd_t *obs, const nav_t *nav, const prcopt_t *opt, i
             return (P2-gamma*P1)/(1.0-gamma);
         }
         else if (sys==SYS_GAL) { /* E1-E5b or E1-E5a */
-            gamma=f2==1?SQR(FREQL1/FREQE5b):SQR(FREQL1/FREQL5);
-            if (f2==1&&getseleph(SYS_GAL)) { /* F/NAV 类型导航文件以E5a为基准 */
-                P2-=gettgd(sat,nav,0)-gettgd(sat,nav,1); /* 当L1-L2组合，TGD:E5a→E5b */
+            if (f2==1) { /* E1-E5b (I/NAV) */
+                /* I/NAV??????????E1/E5b??BGD_E1E5b = TGD */
+                gamma=SQR(FREQL1/FREQE5b);
+                b1=gettgd(sat,nav,1); /* BGD_E1E5b */
+                if (b1!=0.0) {
+                    return (P2-gamma*P1+gamma*b1)/(1.0-gamma);
+                }
+                return (P2-gamma*P1)/(1.0-gamma);
+            } else { /* E1-E5a (F/NAV): ??????????E1/E5a??????TGD???? */
+                gamma=SQR(FREQL1/FREQL5);
+                return (P2-gamma*P1)/(1.0-gamma);
             }
-            /* Galileo E1-E5a组合无需TGD校正 */
-            return (P2-gamma*P1)/(1.0-gamma);
         }
-        else if (sys==SYS_CMP) { /* 源码，应该有bug：B1-B2/ B1-B2a */
-			gamma = SQR(((obs->code[0]==CODE_L2I)?FREQ1_CMP:FREQL1)/FREQ2_CMP); /* B1I使用FREQ1_CMP，B1C使用FREQL1; 第二频率默认使用FREQ2_CMP（B2I/B2b） */
+        else if (sys==SYS_CMP) { /* ????????bug??B1-B2/ B1-B2a */
+			gamma = SQR(((obs->code[0]==CODE_L2I)?FREQ1_CMP:FREQL1)/FREQ2_CMP); /* B1I???FREQ1_CMP??B1C???FREQL1; ????????????FREQ2_CMP??B2I/B2b?? */
             if      (obs->code[0]==CODE_L2I) b1=gettgd(sat,nav,0); /* TGD_B1I */
             else if (obs->code[0]==CODE_L1P) b1=gettgd(sat,nav,2); /* TGD_B1Cp */
             else b1=gettgd(sat,nav,2)+gettgd(sat,nav,4); /* TGD_B1Cp+ISC_B1Cd */

@@ -295,7 +295,11 @@ extern "C" {
 #define MAXGISLAYER 32                  /* max number of GIS data layers */
 #define MAXRCVCMD   4096                /* max length of receiver commands */
 #define MAX_CODE_BIASES 3               /* max # of different code biases per freq */
-#define MAX_CODE_BIAS_FREQS 2           /* max # of freqs supported for code biases  */
+#define MAX_CODE_BIAS_FREQS 5           /* max # of freqs: GPS(G1/G2/G5), GAL(E1/E5a/E5b/E6), CMP(B1/B2/B3/B2a) */
+/* TGD source options for SPP */
+#define TGDOPT_BRDC  0  /* use TGD from broadcast ephemeris only */
+#define TGDOPT_BIA   1  /* use TGD computed from .BIA file DCB */
+#define TGDOPT_BOTH  2  /* use .BIA file TGD, fall back to broadcast */
 
 #define RNX2VER     2.10                /* RINEX ver.2 default output version */
 #define RNX3VER     3.00                /* RINEX ver.3 default output version */
@@ -874,6 +878,8 @@ typedef struct {        /* navigation data type */
     double ion_irn[8];  /* IRNSS iono model parameters {a0,a1,a2,a3,b0,b1,b2,b3} */
     int glo_fcn[32];    /* GLONASS FCN + 8 */
     double cbias[MAXSAT][MAX_CODE_BIAS_FREQS][MAX_CODE_BIASES]; /* satellite DCB [0:P1-C1,1:P2-C2][code] (m) */
+    double tgd_bia[MAXSAT][6]; /* TGD computed from BIA file DCB (s) */
+                                 /* same indexing as eph.tgd[] */
     double rbias[MAXRCV][MAX_CODE_BIAS_FREQS][MAX_CODE_BIASES]; /* receiver DCB (0:P1-P2,1:P1-C1,2:P2-C2) (m) */
     pcv_t pcvs[MAXSAT]; /* satellite antenna pcv */
     sbssat_t sbssat;    /* SBAS satellite corrections */

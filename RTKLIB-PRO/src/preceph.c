@@ -72,29 +72,52 @@ static void init_bias_ix(void) {
     for (i=0;i<MAX_BIAS_SYS;i++) for (j=0;j<MAXCODE;j++)
         code_bias_ix[i][j]=-1;
 
-    /* GPS */
-    code_bias_ix[0][CODE_L1W]=0;
-    code_bias_ix[0][CODE_L1C]=1;
-    code_bias_ix[0][CODE_L1L]=2;
+    /* GPS: freq=0 (L1), freq=1 (L2), freq=2 (L5) */
+    /* NOTE: bias_ix=0 is the reference code slot used by BIA/OSB approach.
+     * C1W is the reference for L1, so bias_ix=0 -> C1W.
+     * C1C is NOT the reference, so give it a separate slot (bias_ix=3)
+     * so its OSB is stored distinctly from the reference slot. */
+    code_bias_ix[0][CODE_L1W]=0;   /* L1-W: reference */
+    code_bias_ix[0][CODE_L1C]=3;   /* L1-C: separate slot */
+    code_bias_ix[0][CODE_L1L]=3;
     code_bias_ix[0][CODE_L1X]=3;
+    code_bias_ix[0][CODE_L1Y]=3;
+    code_bias_ix[0][CODE_L1M]=3;
     code_bias_ix[0][CODE_L2W]=0;
     code_bias_ix[0][CODE_L2L]=1;
     code_bias_ix[0][CODE_L2S]=2;
     code_bias_ix[0][CODE_L2X]=3;
+    code_bias_ix[0][CODE_L5I]=1;  /* GPS L5 freq=2 */
+    code_bias_ix[0][CODE_L5Q]=0;  /* GPS L5 reference */
+    code_bias_ix[0][CODE_L5X]=2;
     /* GLONASS */
     code_bias_ix[1][CODE_L1P]=0;
     code_bias_ix[1][CODE_L1C]=1;
     code_bias_ix[1][CODE_L2P]=0;
     code_bias_ix[1][CODE_L2C]=1;
-    /* Galileo */
+    /* Galileo: freq=0 (E1), freq=1 (E5a), freq=2 (E5b), freq=3 (E6) */
     code_bias_ix[2][CODE_L1C]=0;
-    code_bias_ix[2][CODE_L1X]=1;
-    code_bias_ix[2][CODE_L5Q]=0;
-    code_bias_ix[2][CODE_L5I]=1;
-    code_bias_ix[2][CODE_L5X]=2;
-    /* Beidou */
-    code_bias_ix[3][CODE_L2I]=0;
-    code_bias_ix[3][CODE_L6I]=0;
+    code_bias_ix[2][CODE_L1B]=1;  /* E1-B: Galileo I/NAV */
+    code_bias_ix[2][CODE_L1X]=2;  /* E1-C/E1 combined: Galileo */
+    code_bias_ix[2][CODE_L5Q]=0;  /* E5a-Q: Galileo reference */
+    code_bias_ix[2][CODE_L5I]=1;  /* E5a-I */
+    code_bias_ix[2][CODE_L5X]=2; /* E5a combined */
+    code_bias_ix[2][CODE_L7I]=1;  /* E5b-I */
+    code_bias_ix[2][CODE_L7Q]=0;  /* E5b-Q: Galileo reference */
+    code_bias_ix[2][CODE_L7X]=2; /* E5b combined */
+    code_bias_ix[2][CODE_L6B]=1;  /* E6-B */
+    code_bias_ix[2][CODE_L6C]=1;
+    code_bias_ix[2][CODE_L6X]=1;
+    /* BeiDou: freq=0 (B1), freq=1 (B2), freq=2 (B3), freq=3 (B2a) */
+    code_bias_ix[3][CODE_L2I]=0;  /* B1I reference */
+    code_bias_ix[3][CODE_L1I]=1;  /* B1I (BDS-2) */
+    code_bias_ix[3][CODE_L1P]=2;  /* B1Cp (BDS-2) */
+    code_bias_ix[3][CODE_L1D]=3;  /* B1Cd (BDS-3) */
+    code_bias_ix[3][CODE_L1X]=4;  /* B1C combined */
+    code_bias_ix[3][CODE_L6I]=0;  /* B3 reference */
+    code_bias_ix[3][CODE_L5I]=1;  /* B2a-I / B2b-I */
+    code_bias_ix[3][CODE_L5Q]=2;  /* B2a-Q / B2b-Q */
+    code_bias_ix[3][CODE_L5X]=3;  /* B2a/b combined */
 }
 
 /* satellite code to satellite system ----------------------------------------*/
@@ -444,7 +467,7 @@ extern int code2bias_ix(int sys, int code) {
         return 0;
 }
 /* read DCB parameters from BIA or BSX file ------------------------------------
-*    - supports satellite code biases only
+*    - supports satellite code biases only (simple BIA/BSX format)
 *-----------------------------------------------------------------------------*/
 static int readbiaf(const char *file, nav_t *nav)
 {
@@ -459,6 +482,15 @@ static int readbiaf(const char *file, nav_t *nav)
         trace(2,"dcb parameters file open error: %s\n",file);
         return 0;
     }
+    /* detect Bias-SINEX format (%=BIA, %=BIAS, or |=BIAS for CAS format) */
+    if (fgets(buff,sizeof(buff),fp)&&
+        (strstr(buff,"%=BIA")||strstr(buff,"%=BIAS")||strstr(buff,"|=BIAS")||
+         strstr(buff,"+BIAS/SOLUTION"))) {
+        fclose(fp);
+        return readbiasinex(file,nav);
+    }
+    rewind(fp);
+
     while (fgets(buff,sizeof(buff),fp)) {
         if (sscanf(buff,"%4s %5s %4s %4s %4s",bias,svn,prn,obs1,obs2)<5) continue;
         if (obs1[0]!='C') continue;  /* skip phase biases for now */
@@ -471,7 +503,7 @@ static int readbiaf(const char *file, nav_t *nav)
         else if ((sys!=SYS_GAL&&obs1[1]=='2')||(sys==SYS_GAL&&obs1[1]=='5'))
             freq=1;
         else continue;
-        
+
         if (!(code1=obs2code(&obs1[1]))) continue; /* skip if code not valid */
         bias_ix1=code2bias_ix(sys,code1);
         if (strcmp(bias,"OSB")==0) {
@@ -500,6 +532,224 @@ static int readbiaf(const char *file, nav_t *nav)
 
     return 1;
 }
+
+/* compute TGD from DCB biases (WUM Bias-SINEX) --------------------------------
+* compute TGD parameters for each satellite from OSB code biases
+* TGD = DCB(code_i) - DCB(reference) converted to seconds
+* GPS:  TGD_L1L5 = (B_C1C - B_C5Q) / (f1^2 - f5^2) * f1*f5
+* GAL:  BGD_E1E5a = (B_C1X - B_C5Q) / (f1^2 - f5^2) * f1*f5
+*       BGD_E1E5b = (B_C1X - B_C7Q) / (f1^2 - f5b^2) * f1*f5b
+* CMP:  TGD_B1I = (B_C2I - B_C6I) / (f1^2 - f6^2) * f1*f6   (BDS-2)
+*       TGD_B2I = (B_C2I - B_C7I) / (f1^2 - f7^2) * f1*f7   (BDS-2)
+* args   : int sat       I   satellite number
+*          int sys       I   satellite system (SYS_GPS, SYS_GAL, SYS_CMP)
+*          nav_t *nav    IO  navigation data with cbias[]
+* return : none
+* notes  : tgd_bia[] is in seconds (same unit as broadcast TGD)
+*-----------------------------------------------------------------------------*/
+static void comptgd_bia(int sat, int sys, nav_t *nav)
+{
+    double dc1,dc2,f1,f2,f5,f6;
+
+    if (sys==SYS_GPS||sys==SYS_QZS) {
+        /* tgd_bia[] stores TGD in SECONDS (same unit as broadcast ephemeris tgd[])
+         * TGD_L1L5 = DCB(C1C) - DCB(C5Q)
+         * DCB(X) = OSB(reference) - OSB(X) = -(ref_slot) - obs_slot
+         *   ref_slot  = cbias[freq][0] = OSB(C1W)  (reference signal)
+         *   obs_slot  = cbias[freq][ix] = OSB(X)    (bias_ix-1 slot)
+         * Therefore:
+         *   DCB(C1C) = -cbias[0][0] - cbias[0][2]   (cbias[0][2]=OSB(C1C))
+         *   DCB(C5Q) = -cbias[0][0] - cbias[2][0]   (cbias[2][0]=OSB(C5Q))
+         *   DCB(C1C)-DCB(C5Q) = cbias[2][0] - cbias[0][2]  (cbias[0][0] cancels)
+         * TGD_L1L2 = DCB(C1C) - DCB(C2X)
+         *   DCB(C2X) = -cbias[0][0] - cbias[1][2]   (cbias[1][2]=OSB(C2X))
+         *   DCB(C1C)-DCB(C2X) = (cbias[1][2] - cbias[0][2])  (cbias[0][0] cancels) */
+        f1=FREQL1; f2=FREQL2; f5=FREQL5;
+        /* L1-L5: BGD_L1L5 */
+        dc1=nav->cbias[sat-1][2][0]; /* OSB(C5Q) */
+        dc2=nav->cbias[sat-1][0][2]; /* OSB(C1C) */
+        trace(3,"comptgd_bia: sat=%2d cbias[0][0]=%.3f cbias[0][2]=%.3f cbias[2][0]=%.3f cbias[1][2]=%.3f\n",
+              sat,nav->cbias[sat-1][0][0],dc2,dc1,nav->cbias[sat-1][1][2]);
+        if (dc1!=0.0&&dc2!=0.0) {
+            nav->tgd_bia[sat-1][5]=(dc1-dc2)/CLIGHT*SQR(f1)*SQR(f5)/(SQR(f1)-SQR(f5));
+            trace(3,"comptgd_bia: sat=%2d TGD_L1L5=%.3e (DCB=%.3f)\n",sat,nav->tgd_bia[sat-1][5],dc1-dc2);
+        }
+        /* L1-L2: TGD_L1L2 */
+        dc1=nav->cbias[sat-1][1][2]; /* OSB(C2X) */
+        if (dc1!=0.0&&dc2!=0.0) {
+            nav->tgd_bia[sat-1][0]=(dc1-dc2)/CLIGHT*SQR(f1)*SQR(f2)/(SQR(f1)-SQR(f2));
+            trace(3,"comptgd_bia: sat=%2d TGD_L1L2=%.3e (DCB=%.3f)\n",sat,nav->tgd_bia[sat-1][0],dc1-dc2);
+        }
+    }
+    else if (sys==SYS_GAL) {
+        /* GAL: tgd[0]=BGD_E1E5a (s), tgd[1]=BGD_E1E5b (s) */
+        f1=FREQL1; f5=FREQL5; f6=FREQE5b;
+        /* E1-E5a: BGD_E1E5a */
+        dc1=nav->cbias[sat-1][0][0]; /* C1C bias (E1 reference) */
+        dc2=nav->cbias[sat-1][1][0]; /* C5Q bias (E5a reference) */
+        if (dc1!=0.0&&dc2!=0.0) {
+            nav->tgd_bia[sat-1][0]=(dc1-dc2)/CLIGHT*SQR(f1)*SQR(f5)/(SQR(f1)-SQR(f5));
+        }
+        /* E1-E5b: BGD_E1E5b */
+        dc2=nav->cbias[sat-1][2][0]; /* C7Q bias (E5b reference) */
+        if (dc1!=0.0&&dc2!=0.0) {
+            nav->tgd_bia[sat-1][1]=(dc1-dc2)/CLIGHT*SQR(f1)*SQR(f6)/(SQR(f1)-SQR(f6));
+        }
+    }
+    else if (sys==SYS_CMP) {
+        /* CMP: tgd[0]=TGD_B1I, tgd[1]=TGD_B2I/B2b */
+        f1=FREQ1_CMP; f2=FREQ2_CMP; f6=1.26852E9; /* B3 frequency */
+        /* BDS-2: B1I-B2I */
+        dc1=nav->cbias[sat-1][0][0]; /* C2I (B1I reference) */
+        dc2=nav->cbias[sat-1][1][0]; /* C7I (B2I reference) */
+        if (dc1!=0.0&&dc2!=0.0) {
+            nav->tgd_bia[sat-1][0]=(dc1-dc2)/CLIGHT*SQR(f1)*SQR(f2)/(SQR(f1)-SQR(f2));
+            nav->tgd_bia[sat-1][1]=(dc1-dc2)/CLIGHT*SQR(f1)*SQR(f2)/(SQR(f1)-SQR(f2));
+        }
+        /* BDS-3 B1C/B2a: TGD_B1Cp and TGD_B2ap */
+        dc1=nav->cbias[sat-1][0][1]; /* C1P (B1Cp) */
+        dc2=nav->cbias[sat-1][3][0]; /* C5Q (B2a) */
+        if (dc1!=0.0&&dc2!=0.0) {
+            nav->tgd_bia[sat-1][2]=(dc1-dc2)/CLIGHT*SQR(f1)*SQR(f5)/(SQR(f1)-SQR(f5));
+        }
+        /* B1Cd - B2ad ISC */
+        dc1=nav->cbias[sat-1][0][2]; /* C1D (B1Cd) */
+        dc2=nav->cbias[sat-1][3][1]; /* C5P (B2ad) */
+        if (dc1!=0.0&&dc2!=0.0) {
+            nav->tgd_bia[sat-1][4]=(dc1-dc2)/CLIGHT*SQR(f1)*SQR(f5)/(SQR(f1)-SQR(f5));
+            nav->tgd_bia[sat-1][5]=(dc1-dc2)/CLIGHT*SQR(f1)*SQR(f5)/(SQR(f1)-SQR(f5));
+        }
+    }
+}
+
+/* read CAS/WUM Bias-SINEX format file ----------------------------------------
+* supports CAS0MGXRAP and WUM OSB in Bias-SINEX format
+* parses OSB/DOCB rows using fixed-column extraction
+* then computes TGD from DCB biases for each satellite
+* args   : const char *file  I   BIA file path
+*          nav_t  *nav        IO  navigation data
+* return : status (1:ok, 0:error)
+* CAS format (fixed columns):
+*   0-4   : OSB/DOCB bias type
+*   5-9   : PRN (e.g. "G01", "E01", "C01")
+*   18-21 : OBS1 (e.g. "C1C", "C5Q", "C7Q")
+*   54-56 : unit ("ns" or "m")
+*   67-88 : bias value
+*-----------------------------------------------------------------------------*/
+static int readbiasinex(const char *file, nav_t *nav)
+{
+    FILE *fp;
+    char buff[256],prn[8],obs1[8],bias[8];
+    double cbias;
+    int sat,freq,code1,bias_ix1,sys;
+    int nsat=0;
+
+    trace(3,"readbiasinex: file=%s\n",file);
+
+    if (!(fp=fopen(file,"r"))) {
+        trace(2,"bias-sinex file open error: %s\n",file);
+        return 0;
+    }
+    /* find +BIAS/SOLUTION section */
+    {
+        int line_no=0;
+        while (fgets(buff,sizeof(buff),fp)) {
+            line_no++;
+            if (strstr(buff,"+BIAS/SOLUTION")) {
+                trace(3,"readbiasinex: found +BIAS/SOLUTION at line %d\n",line_no);
+                break;
+            }
+        }
+        if (feof(fp)) {
+            trace(2,"readbiasinex: +BIAS/SOLUTION not found in file\n");
+            fclose(fp);
+            return 0;
+        }
+    }
+    /* parse solution biases */
+    while (fgets(buff,sizeof(buff),fp)) {
+            if (strstr(buff,"-BIAS/SOLUTION")) break;
+
+        /* skip comment/header lines */
+        if (buff[0]=='*'||buff[0]=='+'||buff[0]=='-'||buff[0]=='%'||buff[0]=='|')
+            continue;
+        if (strlen(buff)<86) continue;
+
+        /* extract fields from fixed columns (0-indexed) - VERIFIED with PowerShell
+         * CAS format: " OSB  G063 G01           C1C       2020:345:00000 ns                  9.7410 ..."
+         *   pos:     1   2   3   6   7   8   9  11  12  13  25  26  27  65  66  85  86  87  88  89  90 */
+        strncpy(bias, buff+1, 4); bias[4]='\0';
+        /* PRN: sys char at 11 (e.g. 'G'), prn digits at 12-13 (e.g. "01") -> "G01" */
+        prn[0]=buff[11]; /* system char */
+        prn[1]=buff[12]; /* prn digit */
+        prn[2]=buff[13]; /* prn digit */
+        prn[3]='\0';
+        strncpy(obs1, buff+25, 3); obs1[3]='\0'; /* "C1C" -> obs1+1="1C" */
+        cbias=str2num(buff,85,22);
+
+        /* verify bias type (DOCB or OSB) */
+        if (strncmp(bias,"DOCB",4)!=0&&strncmp(bias,"OSB ",4)!=0) continue;
+        /* skip phase biases */
+        if (obs1[0]=='L') continue;
+        if (cbias==0.0) continue;
+
+        sat=satid2no(prn);
+        if (sat<=0) {
+            trace(3,"readbiasinex: skip sat prn=%.4s sat=%d\n",prn,sat);
+            continue;
+        }
+        sys=satsys(sat,NULL);
+
+        /* determine frequency index from observation code band */
+        switch (obs1[1]) {
+            case '1': freq=0; break;                       /* L1/E1/B1 */
+            case '2': freq=1; break;                        /* L2/E5b/B2 */
+            case '5': freq=(sys==SYS_GAL)?1:2; break;      /* L5: GPS->freq2, GAL->freq1, CMP->freq3 */
+            case '6': freq=2; break;                        /* E6/B3 */
+            case '7': freq=2; break;                       /* E5b/B2 */
+            case '8': freq=3; break;                       /* E5a+b */
+            default:  continue;
+        }
+
+        code1=obs2code(obs1+1);
+        bias_ix1=code2bias_ix(sys,code1);
+        /* skip unsupported observation codes (bias_ix stays -1) */
+        if (bias_ix1<0) {
+            trace(3,"readbiasinex: skip unsupported sat=%2d obs=%.4s code=%d ix=%d\n",
+                  sat,obs1,code1,bias_ix1);
+            continue;
+        }
+
+        trace(3,"readbiasinex: sat=%2d(%.4s) freq=%d obs=%.4s bias=%.3f ix=%d -> %s\n",
+              sat,prn,freq,obs1,cbias,bias_ix1,
+              bias_ix1==0?"ref":"rel");
+
+        /* store OSB bias: reference code bias distributed to all slots,
+         * other codes stored relative to reference */
+        if (bias_ix1==0) {
+            int i;
+            for (i=0;i<MAX_CODE_BIASES;i++)
+                nav->cbias[sat-1][freq][i]+=cbias*1E-9*CLIGHT; /* ns -> m */
+        } else {
+            nav->cbias[sat-1][freq][bias_ix1-1]-=cbias*1E-9*CLIGHT;
+        }
+        nsat++;
+    }
+    fclose(fp);
+
+    /* compute TGD from DCB biases for each satellite */
+    {
+        int s;
+        for (s=1;s<=MAXSAT;s++) {
+            int ss=satsys(s,NULL);
+            if (ss==SYS_GPS||ss==SYS_GAL||ss==SYS_CMP||ss==SYS_QZS) {
+                comptgd_bia(s,ss,nav);
+            }
+        }
+    }
+    trace(3,"readbiasinex: loaded %d bias entries\n",nsat);
+    return nsat>0?1:0;
+}
 /* read DCB parameters ---------------------------------------------------------
 * read differential code bias (DCB) parameters
 * args   : char   *file       I   DCB parameters file (wild-card * expanded)
@@ -522,6 +772,9 @@ extern int readdcb(const char *file, nav_t *nav, const sta_t *sta)
 
     for (i=0;i<MAXSAT;i++) for (j=0;j<MAX_CODE_BIAS_FREQS;j++) for (k=0;k<MAX_CODE_BIASES;k++) {
         nav->cbias[i][j][k]=0.0;
+    }
+    for (i=0;i<MAXSAT;i++) for (j=0;j<6;j++) {
+        nav->tgd_bia[i][j]=0.0;
     }
     for (i=0;i<MAXEXFILE;i++) {
         if (!(efiles[i]=(char *)malloc(1024))) {

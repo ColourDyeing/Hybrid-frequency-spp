@@ -35,7 +35,8 @@ PHONES = ['mi8','pixel7pro','sm-g988b','sm-s908b']  # 为空时自动识别(所�
 
 # 设置观测和导航文件的匹配规则
 basefiles = '*0.2*o'                      # 观测文件, 支持多种扩展名
-navfiles = ['BRDM*MN.rnx', '*0.2*n']      # 导航文件, 支持多种扩展名
+navfiles = ['BRDM*MN.rnx', '*0.2*n', '*0.2*p',]      # 导航文件, 支持多种扩展名
+biafiles = '*.BIA'                        # DCB/BIA文件, 支持WUM等格式
 
 # 将相对路径改为绝对路径
 SCRIPT_DIR = dirname(abspath(__file__))     # 获取当前脚本所在目录
@@ -79,13 +80,15 @@ def convert_rnx(args_tuple):
 
 # 单个（单线程）RTKLIB解算函数
 def run_rtklib(args_tuple):
-    binpath_rtklib, cfgfile_rtklib, folder, obsfile, basefile, navfile, solfile = args_tuple
+    binpath_rtklib, cfgfile_rtklib, folder, obsfile, basefile, navfile, biafile, solfile = args_tuple
     # 构建命令，只传存在的文件，空文件用 None 跳过
     rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile,'-x', '3'] #调试打印trace文件用
     # rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile]
     if basefile:
         rtkcmd.append(basefile)
     rtkcmd.append(navfile)
+    if biafile:
+        rtkcmd.append(biafile)
     subprocess.run(rtkcmd, cwd=folder, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return True
 
@@ -132,6 +135,7 @@ def main():
             nav_candidates = []                                     # 查找导航文件
             for p in navfiles:
                 nav_candidates += glob(join(dataset_root, p))
+            bia_candidates = glob(join(dataset_root, biafiles))     # 查找BIA/DCB文件
 
             # 检查文件是否存在（分为是否需要基站文件）
             if NEED_BASE_FILE:
@@ -142,6 +146,7 @@ def main():
                     continue
                 baseFile = base_candidates[0]
                 navFile  = nav_candidates[0]
+                biaFile  = bia_candidates[0] if bia_candidates else ''  # BIA文件可选
             else:
                 # SPP模式：只需要导航文件，基站文件可为空
                 baseFile = ''
@@ -150,6 +155,7 @@ def main():
                     print('   查找目录:', dataset_root)
                     continue
                 navFile = nav_candidates[0]
+                biaFile = bia_candidates[0] if bia_candidates else ''  # BIA文件可选
 
             solFile = obsFile[:-4] + '_' + SOL_TAG + '.pos'  # 解算结果文件标签
 
@@ -158,7 +164,7 @@ def main():
                     len(glob(solFile)) == 0 or rinex == True):
                 print('Run_rtklib: ', join(dataset, phone))
                 rtklibIn.append((binpath_rtklib, cfgfile_rtklib,
-                                 folder, obsFile, baseFile, navFile, solFile))
+                                 folder, obsFile, baseFile, navFile, biaFile, solFile))
 
     if len(rinexIn) > 0:
         print(f'\n开始并行转换rinex文件 (共{len(rinexIn)}个)...')
