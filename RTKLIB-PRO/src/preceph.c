@@ -533,9 +533,9 @@ static int readbiaf(const char *file, nav_t *nav)
     return 1;
 }
 
-/* compute TGD from DCB biases (WUM Bias-SINEX) --------------------------------
+/* compute TGD from DCB biases (CAS/WUM Bias-SINEX) ----------------------------
 * compute TGD parameters for each satellite from OSB code biases
-* TGD = DCB(code_i) - DCB(reference) converted to seconds
+* TGD = DCB(code_i) - DCB(reference) converted to meters
 * GPS:  TGD_L1L5 = (B_C1C - B_C5Q) / (f1^2 - f5^2) * f1*f5
 * GAL:  BGD_E1E5a = (B_C1X - B_C5Q) / (f1^2 - f5^2) * f1*f5
 *       BGD_E1E5b = (B_C1X - B_C7Q) / (f1^2 - f5b^2) * f1*f5b
@@ -545,14 +545,15 @@ static int readbiaf(const char *file, nav_t *nav)
 *          int sys       I   satellite system (SYS_GPS, SYS_GAL, SYS_CMP)
 *          nav_t *nav    IO  navigation data with cbias[]
 * return : none
-* notes  : tgd_bia[] is in seconds (same unit as broadcast TGD)
+* notes  : tgd_bia[] is in SECONDS (same unit as broadcast ephemeris tgd[])
+*          gettgd() returns it directly, prange() uses it directly
 *-----------------------------------------------------------------------------*/
 static void comptgd_bia(int sat, int sys, nav_t *nav)
 {
     double dc1,dc2,f1,f2,f5,f6;
 
     if (sys==SYS_GPS||sys==SYS_QZS) {
-        /* tgd_bia[] stores TGD in SECONDS (same unit as broadcast ephemeris tgd[])
+        /* tgd_bia[] stores TGD in SECONDS (cbias[] is in meters, so divide by CLIGHT)
          * TGD_L1L5 = DCB(C1C) - DCB(C5Q)
          * DCB(X) = OSB(reference) - OSB(X) = -(ref_slot) - obs_slot
          *   ref_slot  = cbias[freq][0] = OSB(C1W)  (reference signal)
@@ -571,29 +572,33 @@ static void comptgd_bia(int sat, int sys, nav_t *nav)
         trace(3,"comptgd_bia: sat=%2d cbias[0][0]=%.3f cbias[0][2]=%.3f cbias[2][0]=%.3f cbias[1][2]=%.3f\n",
               sat,nav->cbias[sat-1][0][0],dc2,dc1,nav->cbias[sat-1][1][2]);
         if (dc1!=0.0&&dc2!=0.0) {
-            nav->tgd_bia[sat-1][5]=(dc1-dc2)/CLIGHT*SQR(f1)*SQR(f5)/(SQR(f1)-SQR(f5));
+            /* TGD_L1L5 = DCB * f1 * f5 / (f1^2 - f5^2) / CLIGHT, result in seconds */
+            nav->tgd_bia[sat-1][5]=(dc1-dc2)*f1*f5/(SQR(f1)-SQR(f5))/CLIGHT;
             trace(3,"comptgd_bia: sat=%2d TGD_L1L5=%.3e (DCB=%.3f)\n",sat,nav->tgd_bia[sat-1][5],dc1-dc2);
         }
         /* L1-L2: TGD_L1L2 */
         dc1=nav->cbias[sat-1][1][2]; /* OSB(C2X) */
         if (dc1!=0.0&&dc2!=0.0) {
-            nav->tgd_bia[sat-1][0]=(dc1-dc2)/CLIGHT*SQR(f1)*SQR(f2)/(SQR(f1)-SQR(f2));
+            /* TGD_L1L2 = DCB * f1 * f2 / (f1^2 - f2^2) / CLIGHT, result in seconds */
+            nav->tgd_bia[sat-1][0]=(dc1-dc2)*f1*f2/(SQR(f1)-SQR(f2))/CLIGHT;
             trace(3,"comptgd_bia: sat=%2d TGD_L1L2=%.3e (DCB=%.3f)\n",sat,nav->tgd_bia[sat-1][0],dc1-dc2);
         }
     }
     else if (sys==SYS_GAL) {
-        /* GAL: tgd[0]=BGD_E1E5a (s), tgd[1]=BGD_E1E5b (s) */
+        /* GAL: tgd[0]=BGD_E1E5a (m), tgd[1]=BGD_E1E5b (m) */
         f1=FREQL1; f5=FREQL5; f6=FREQE5b;
         /* E1-E5a: BGD_E1E5a */
         dc1=nav->cbias[sat-1][0][0]; /* C1C bias (E1 reference) */
         dc2=nav->cbias[sat-1][1][0]; /* C5Q bias (E5a reference) */
         if (dc1!=0.0&&dc2!=0.0) {
-            nav->tgd_bia[sat-1][0]=(dc1-dc2)/CLIGHT*SQR(f1)*SQR(f5)/(SQR(f1)-SQR(f5));
+            /* BGD_E1E5a = DCB * f1 * f5 / (f1^2 - f5^2) / CLIGHT, result in seconds */
+            nav->tgd_bia[sat-1][0]=(dc1-dc2)*f1*f5/(SQR(f1)-SQR(f5))/CLIGHT;
         }
         /* E1-E5b: BGD_E1E5b */
         dc2=nav->cbias[sat-1][2][0]; /* C7Q bias (E5b reference) */
         if (dc1!=0.0&&dc2!=0.0) {
-            nav->tgd_bia[sat-1][1]=(dc1-dc2)/CLIGHT*SQR(f1)*SQR(f6)/(SQR(f1)-SQR(f6));
+            /* BGD_E1E5b = DCB * f1 * f6 / (f1^2 - f6^2) / CLIGHT, result in seconds */
+            nav->tgd_bia[sat-1][1]=(dc1-dc2)*f1*f6/(SQR(f1)-SQR(f6))/CLIGHT;
         }
     }
     else if (sys==SYS_CMP) {
@@ -603,21 +608,24 @@ static void comptgd_bia(int sat, int sys, nav_t *nav)
         dc1=nav->cbias[sat-1][0][0]; /* C2I (B1I reference) */
         dc2=nav->cbias[sat-1][1][0]; /* C7I (B2I reference) */
         if (dc1!=0.0&&dc2!=0.0) {
-            nav->tgd_bia[sat-1][0]=(dc1-dc2)/CLIGHT*SQR(f1)*SQR(f2)/(SQR(f1)-SQR(f2));
-            nav->tgd_bia[sat-1][1]=(dc1-dc2)/CLIGHT*SQR(f1)*SQR(f2)/(SQR(f1)-SQR(f2));
+            /* TGD_B1I = TGD_B2I = DCB * f1 * f2 / (f1^2 - f2^2) / CLIGHT, result in seconds */
+            nav->tgd_bia[sat-1][0]=(dc1-dc2)*f1*f2/(SQR(f1)-SQR(f2))/CLIGHT;
+            nav->tgd_bia[sat-1][1]=(dc1-dc2)*f1*f2/(SQR(f1)-SQR(f2))/CLIGHT;
         }
         /* BDS-3 B1C/B2a: TGD_B1Cp and TGD_B2ap */
         dc1=nav->cbias[sat-1][0][1]; /* C1P (B1Cp) */
         dc2=nav->cbias[sat-1][3][0]; /* C5Q (B2a) */
         if (dc1!=0.0&&dc2!=0.0) {
-            nav->tgd_bia[sat-1][2]=(dc1-dc2)/CLIGHT*SQR(f1)*SQR(f5)/(SQR(f1)-SQR(f5));
+            /* TGD_B1Cp = DCB * f1 * f5 / (f1^2 - f5^2) / CLIGHT, result in seconds */
+            nav->tgd_bia[sat-1][2]=(dc1-dc2)*f1*f5/(SQR(f1)-SQR(f5))/CLIGHT;
         }
         /* B1Cd - B2ad ISC */
         dc1=nav->cbias[sat-1][0][2]; /* C1D (B1Cd) */
         dc2=nav->cbias[sat-1][3][1]; /* C5P (B2ad) */
         if (dc1!=0.0&&dc2!=0.0) {
-            nav->tgd_bia[sat-1][4]=(dc1-dc2)/CLIGHT*SQR(f1)*SQR(f5)/(SQR(f1)-SQR(f5));
-            nav->tgd_bia[sat-1][5]=(dc1-dc2)/CLIGHT*SQR(f1)*SQR(f5)/(SQR(f1)-SQR(f5));
+            /* TGD_B1Cd = TGD_B2ad = DCB * f1 * f5 / (f1^2 - f5^2) / CLIGHT, result in seconds */
+            nav->tgd_bia[sat-1][4]=(dc1-dc2)*f1*f5/(SQR(f1)-SQR(f5))/CLIGHT;
+            nav->tgd_bia[sat-1][5]=(dc1-dc2)*f1*f5/(SQR(f1)-SQR(f5))/CLIGHT;
         }
     }
 }
