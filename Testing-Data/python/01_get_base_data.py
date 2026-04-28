@@ -16,7 +16,7 @@ import multiprocessing
 from multiprocessing import Pool, cpu_count
 
 # Input parameters
-datadir =  'D:\\Desktop\\RTKLIB-VS\\Reference\\GSDC_2023\\data\\train' # relative to python script
+datadir =  "D:/Desktop/RTKLIB-VS/Graduation/Testing-Data/data/dataset" # relative to python script
 # List of CORS stations to use
 stas = ['slac', 'vdcy', 'p222']  # Bay Area, LA, backup for Bay Area
 
@@ -24,7 +24,7 @@ stas = ['slac', 'vdcy', 'p222']  # Bay Area, LA, backup for Bay Area
 obs_url_base = 'https://geodesy.noaa.gov/corsdata/rinex'  
 
 # Make sure you have downloaded this executable before running this code
-crx2rnx_bin = "D:\\Desktop\\RTKLIB-VS\\Reference\\GSDC_2023\\rtklib\\crx2rnx.exe"
+crx2rnx_bin = "D:/Desktop/RTKLIB-VS/Graduation/Testing-Data/rtklib/crx2rnx.exe"
 
 def download_nav_data_igs_bkg(year, doy, dataset_dir):
     """从IGS BKG数据中心下载导航数据"""

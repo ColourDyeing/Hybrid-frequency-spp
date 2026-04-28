@@ -15,12 +15,13 @@ import sys
 import io
 
 # 设置输入数据集的位置，以及解算结果文件
-DATA_SET = 'train'       # 选择数据文件夹
-SOL_TAG = 'spp-uduc'          # 定位解决方案
+DATA_SET = 'dataset'       # 选择数据文件夹
+SOL_TAG = 'spp-brdc'       # 解算结果文件标签
 datapath = '../data/'    # 相对python脚本的路径
 
 # 设置二进制文件和配置文件, 相对python脚本的路径
-binpath_rtklib  = "../rtklib/rnx2rtkp-uduc.exe"
+# binpath_rtklib  = "../rtklib/rnx2rtkp-df.exe"
+binpath_rtklib = "D:/Desktop/RTKLIB-VS/Graduation/RTKLIB-PRO/app/consapp/rnx2rtkp/msc/Debug/rnx2rtkp.exe"   
 cfgfile_rtklib = "../config/Hybrid-frequency-spp.conf"
 
 # 设置解算选项
@@ -28,18 +29,22 @@ OVERWRITE_RINEX = False   # 是否覆盖已存在的rinex文件
 NEED_BASE_FILE = False   # 是否需要基站文件 (SPP设为False, PPK设为True)
 ENABLE_RTKLIB = True     # 是否使用RTKLIB生成解算结果
 OVERWRITE_SOL = True     # 是否覆盖已存在的解算结果文件
+USE_DCB_BIA = False       # 是否使用DCB/BIA文件进行DCB和TGD校正 (True=使用, False=不使用)
+                         # 开启时: RTKLIB加载.BIA文件, 应用卫星DCB校正
+                         # 关闭时: 仅使用星历中的TGD参数进行校正
 
 # 选择要处理的手机型号，留空则自动识别数据目录下所有机型文件夹名
-PHONES = []  # 为空时自动识别(所有机型)
+PHONES = ['mi8','pixel7pro','sm-g988b','sm-s908b']  # 为空时自动识别(所有机型)
 
 # 设置观测和导航文件的匹配规则
 basefiles = '*0.2*o'                      # 观测文件, 支持多种扩展名
-navfiles = ['BRDM*MN.rnx', '*0.2*n']      # 导航文件, 支持多种扩展名
+navfiles = ['BRDM*MN.rnx', '*0.2*n', '*0.2*p',]      # 导航文件, 支持多种扩展名
+biafiles = '*.BIA'                        # DCB/BIA文件, 支持WUM等格式
 
 # 将相对路径改为绝对路径
 SCRIPT_DIR = dirname(abspath(__file__))     # 获取当前脚本所在目录
 datadir = abspath(join(SCRIPT_DIR, datapath, DATA_SET))
-binpath_rtklib = abspath(join(SCRIPT_DIR, binpath_rtklib))
+# binpath_rtklib = abspath(join(SCRIPT_DIR, binpath_rtklib))
 cfgfile_rtklib = abspath(join(SCRIPT_DIR, cfgfile_rtklib))
 
 # 解决Windows控制台中文编码问题
@@ -78,19 +83,15 @@ def convert_rnx(args_tuple):
 
 # 单个（单线程）RTKLIB解算函数
 def run_rtklib(args_tuple):
-    binpath_rtklib, cfgfile_rtklib, folder, obsfile, basefile, navfile, solfile = args_tuple
-    # 构建命令，只传存在的文件，空文件用 None 跳过
-    rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile]
+    binpath_rtklib, cfgfile_rtklib, folder, obsfile, basefile, navfile, biafile, solfile, use_dcb_bia = args_tuple
+    rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile, '-x', '3'] #调试打印trace文件用
+    # rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile]
     if basefile:
         rtkcmd.append(basefile)
     rtkcmd.append(navfile)
-    try:
-        subprocess.run(rtkcmd, cwd=folder,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
-    except subprocess.TimeoutExpired:
-        print(f'  [超时] {os.path.basename(folder)} 超过60秒', flush=True)
-    except Exception as e:
-        print(f'  [错误] {os.path.basename(folder)}: {e}', flush=True)
+    if biafile and use_dcb_bia:
+        rtkcmd.append(biafile)
+    subprocess.run(rtkcmd, cwd=folder, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return True
 
 ####### 主程序入口 ##########################
@@ -136,6 +137,7 @@ def main():
             nav_candidates = []                                     # 查找导航文件
             for p in navfiles:
                 nav_candidates += glob(join(dataset_root, p))
+            bia_candidates = glob(join(dataset_root, biafiles))     # 查找BIA/DCB文件
 
             # 检查文件是否存在（分为是否需要基站文件）
             if NEED_BASE_FILE:
@@ -146,6 +148,7 @@ def main():
                     continue
                 baseFile = base_candidates[0]
                 navFile  = nav_candidates[0]
+                biaFile  = bia_candidates[0] if bia_candidates else ''  # BIA文件可选
             else:
                 # SPP模式：只需要导航文件，基站文件可为空
                 baseFile = ''
@@ -154,15 +157,17 @@ def main():
                     print('   查找目录:', dataset_root)
                     continue
                 navFile = nav_candidates[0]
+                biaFile = bia_candidates[0] if bia_candidates else ''  # BIA文件可选
 
             solFile = obsFile[:-4] + '_' + SOL_TAG + '.pos'  # 解算结果文件标签
 
             # 检查是否需要进行RTKLIB解算（用户要求、解算结果文件不存在、需要覆盖已存在的解算结果文件，则需要）
             if ENABLE_RTKLIB and (OVERWRITE_SOL == True or
                     len(glob(solFile)) == 0 or rinex == True):
-                print('Run_rtklib: ', join(dataset, phone))
+                print('Run_rtklib: ', join(dataset, phone),
+                      '  [DCB/BIA: %s]' % ('ON' if USE_DCB_BIA else 'OFF'))
                 rtklibIn.append((binpath_rtklib, cfgfile_rtklib,
-                                 folder, obsFile, baseFile, navFile, solFile))
+                                 folder, obsFile, baseFile, navFile, biaFile, solFile, USE_DCB_BIA))
 
     if len(rinexIn) > 0:
         print(f'\n开始并行转换rinex文件 (共{len(rinexIn)}个)...')
@@ -184,7 +189,12 @@ def main():
         with Pool() as pool:
             for _ in pool.imap_unordered(run_rtklib, rtklibIn, chunksize=1):
                 completed += 1
-                print(f'\r完成: {completed}/{total}', end='', flush=True)
+                print(f'\r解算进度: {completed}/{total}', end='', flush=True)
+        # 单线程模式，用以调试
+        # for item in rtklibIn:
+        #     run_rtklib(item)
+        #     completed += 1
+        #     print(f'\r完成: {completed}/{total}', end='', flush=True)
         print('\nRTKLIB解算全部完成!')
         sys.stdout.flush()
 

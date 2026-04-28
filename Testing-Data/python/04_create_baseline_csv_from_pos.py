@@ -9,15 +9,15 @@ from datetime import datetime
 
 ########### Input parameters ###############################
 
-DATA_SET = 'train' # 选择数据文件夹
-SOL_TAG = 'spp-uduc' # 解算文件标签
+DATA_SET = 'dataset' # 选择数据文件夹
+SOL_TAG = 'spp-brdc' # 解算文件标签
 datapath = '../data/' # 相对python脚本的路径
 rovfile = 'gnss_log'
 hdrlen = 25    # 25 for RTKLIB, 1 for RTKLIB-py，表示跳过前多少行
 
 outThresh = 100   # max horizontal accuracy estimate（本次不使用这个参数，后续可以根据需要添加）
 # Select all phones to process
-PHONES = []
+PHONES = ['mi8','pixel7pro','sm-g988b','sm-s908b']  # 为空时自动识别(所有机型)
 
 ############################################################
 
@@ -40,7 +40,7 @@ def create_csv(datapath, DATA_SET, SOL_TAG):
     pos_base = base_txt[:,2:4].astype(float) # baseline positions
     
     # open output file
-    output_filename = 'locations_' + SOL_TAG + '_' + DATA_SET + '_' + datetime.now().strftime("%m_%d_%H%M%S") + '.csv'
+    output_filename = 'locations_' + SOL_TAG + '_' + DATA_SET + '_' + datetime.now().strftime("%m_%d") + '.csv'
     fout =open(output_filename,'w') # 保存的文件名字
     fout.write('tripId,UnixTimeMillis,LatitudeDegrees,LongitudeDegrees,Height,Quality,NumSatellites,Sde,Sdu,Sdn,Sdne,Sdeu,Sdun\n')
     
