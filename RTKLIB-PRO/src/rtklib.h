@@ -467,6 +467,7 @@ extern "C" {
 #define POSOPT_FILE    3                /* pos option: read from pos file */
 #define POSOPT_RINEX   4                /* pos option: rinex header pos */
 #define POSOPT_RTCM    5                /* pos option: rtcm/raw station pos */
+#define POSOPT_UNCOMB  6                /* pos option: multi-freq uncombined SPP with L5 clock */
 
 #define STR_NONE     0                  /* stream type: none */
 #define STR_SERIAL   1                  /* stream type: serial */
