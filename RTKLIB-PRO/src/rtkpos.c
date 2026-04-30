@@ -2286,7 +2286,9 @@ extern void rtkfree(rtk_t *rtk)
 *                .rr[]      IO  rover position/velocity
 *                               (I:fixed mode,O:single mode)
 *                .dtr[0]    O   receiver clock bias (s)
-*                .dtr[1-5]  O   receiver GLO/GAL/BDS/IRN/QZS-GPS time offset (s)
+*                .dtr[1-6]  O   receiver L5-IF/GLO/GAL/BDS/IRN/QZS-GPS time offset (s)
+*                           Note: PPP uses dtr[1-3] for GLO/GAL/BDS ISB;
+*                                 uncombined-SPP uses dtr[1] for L5-IF, dtr[2-6] for ISBs
 *                .Qr[]      O   rover position covariance
 *                .stat      O   solution status (SOLQ_???)
 *                .ns        O   number of valid satellites

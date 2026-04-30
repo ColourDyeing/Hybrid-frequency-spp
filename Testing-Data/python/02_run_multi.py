@@ -15,8 +15,8 @@ import sys
 import io
 
 # 设置输入数据集的位置，以及解算结果文件
-DATA_SET = 'dataset'       # 选择数据文件夹
-SOL_TAG = 'spp-brdc'       # 解算结果文件标签
+DATA_SET = 'train'       # 选择数据文件夹
+SOL_TAG = 'spp-uduc'       # 解算结果文件标签
 datapath = '../data/'    # 相对python脚本的路径
 
 # 设置二进制文件和配置文件, 相对python脚本的路径
@@ -84,8 +84,8 @@ def convert_rnx(args_tuple):
 # 单个（单线程）RTKLIB解算函数
 def run_rtklib(args_tuple):
     binpath_rtklib, cfgfile_rtklib, folder, obsfile, basefile, navfile, biafile, solfile, use_dcb_bia = args_tuple
-    rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile, '-x', '3'] #调试打印trace文件用
-    # rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile]
+    # rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile, '-x', '3'] #调试打印trace文件用
+    rtkcmd = [binpath_rtklib, '-k', cfgfile_rtklib, '-o', solfile, obsfile]
     if basefile:
         rtkcmd.append(basefile)
     rtkcmd.append(navfile)

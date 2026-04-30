@@ -913,7 +913,7 @@ typedef struct {        /* solution type */
                         /* {c_xx,c_yy,c_zz,c_xy,c_yz,c_zx} or */
                         /* {c_ee,c_nn,c_uu,c_en,c_nu,c_ue} */
     float  qv[6];       /* velocity variance/covariance (m^2/s^2) */
-    double dtr[6];      /* receiver clock bias to time systems (s) */
+    double dtr[8];      /* receiver clock bias to time systems (s) {GPS,L5-IF,GLO,GAL,BDS,IRN,QZS} */
     uint8_t type;       /* type (0:xyz-ecef,1:enu-baseline) */
     uint8_t stat;       /* solution status (SOLQ_???) */
     uint8_t ns;         /* number of valid satellites */
@@ -1082,7 +1082,7 @@ typedef struct {        /* processing options type */
     int  initrst;       /* initialize by restart */
     int  outsingle;     /* output single by dgps/float/fix/ppp outage */
     char rnxopt[2][256]; /* rinex options {rover,base} */
-    int  posopt[6];     /* positioning options */
+    int  posopt[7];     /* positioning options (posopt[6]=multi-freq uncombined SPP) */
     int  syncsol;       /* solution sync mode (0:off,1:on) */
     double odisp[2][2][11][3]; // Ocean tide loading parameters {rov,base}{amp,phase}
     int  freqopt;       /* disable L2-AR */

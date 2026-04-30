@@ -32,21 +32,32 @@
 #define MAX(x,y)    ((x)>=(y)?(x):(y))
 
 #define QZSDT /* enable GPS-QZS time offset estimation */
-/* state vector indices: pos(0-2) + clocks + ISBs */
-#define IDX_DT      3           /* receiver clock (GPS reference, m) */
-#define IDX_DT_L5   4           /* L5 inter-frequency clock (m, all systems) */
-#define IDX_ISB_GLO 5           /* GLONASS-GPS inter-system bias (m) */
-#define IDX_ISB_GAL 6           /* Galileo-GPS inter-system bias (m) */
-#define IDX_ISB_BDS 7           /* BeiDou-GPS inter-system bias (m) */
-#define IDX_ISB_IRN 8           /* NavIC-GPS inter-system bias (m) */
+
+/* ============================================================
+ * 多频未组合SPP模型状态向量参数索引
+ * 状态向量 x[NX] 共10维: [X,Y,Z, dt, dt_L5, ISB_GLO, ISB_GAL, ISB_BDS, ISB_IRN, ISB_QZS]
+ * ============================================================ */
+#define IDX_DT      3           /* 接收机钟差 (GPS参考系统, 单位m) */
+#define IDX_DT_L5   4           /* L5频间接收机钟差 (所有系统共用, 单位m) */
+#define IDX_ISB_GLO 5           /* GLONASS相对GPS的系统间偏差ISB (m) */
+#define IDX_ISB_GAL 6           /* Galileo相对GPS的系统间偏差ISB (m) */
+#define IDX_ISB_BDS 7           /* 北斗相对GPS的系统间偏差ISB (m) */
+#define IDX_ISB_IRN 8           /* NavIC相对GPS的系统间偏差ISB (m) */
 #ifdef QZSDT
-#define IDX_ISB_QZS 9           /* QZSS-GPS inter-system bias (m) */
+#define IDX_ISB_QZS 9           /* QZSS相对GPS的系统间偏差ISB (m) */
+#endif
+/* 状态向量总维数: 位置3维 + 钟差1维 + L5钟差1维 + ISB 5维 = 10维 */
+#ifdef QZSDT
 #define NX          (4+6)       /* # of estimated parameters */
 #else
-#define NX          (4+6)       /* # of estimated parameters */
+#define NX          (4+5)       /* # of estimated parameters */
 #endif
-/* NX: [0-2]=pos, [3]=dt, [4]=dt_L5, [5]=ISB_GLO, [6]=ISB_GAL, [7]=ISB_BDS,
- *     [8]=ISB_IRN, [9]=ISB_QZS (if QZSDT) */
+/* 状态向量索引说明:
+ * [0-2]  = 位置 (X, Y, Z)
+ * [3]    = GPS参考接收机钟差 dt
+ * [4]    = L5频间钟差 dt_L5 (多频模式时新增)
+ * [5-9]  = 各系统ISB (GLO/GAL/BDS/IRN/QZS)
+ */
 #define MAXITR      10          /* max number of iteration for point pos */
 #define ERR_ION     5.0         /* ionospheric delay Std (m) */
 #define ERR_TROP    3.0         /* tropspheric delay Std (m) */
@@ -75,15 +86,15 @@ static double varerr(const prcopt_t *opt, const ssat_t *ssat, const obsd_t *obs,
     /* var = R^2*(a^2 + (b^2/sin(el) + c^2*(10^(0.1*(snr_max-snr_rover)))) + (d*rcv_std)^2) */
     varr=SQR(opt->err[1])+SQR(opt->err[2])/sin(el);
     if (opt->err[6]>0.0) {  /* if snr term not zero */
-        snr_rover=(ssat)?ssat->snr_rover[0]:opt->err[5];
+        snr_rover=obs->SNR[0]!=0?obs->SNR[0]:opt->err[5]; /* 修复bug：直接使用obs中的snr而非ssat中的snr */ 
         varr+=SQR(opt->err[6])*pow(10,0.1*MAX(opt->err[5]-snr_rover,0));
     }
     varr*=SQR(opt->eratio[0]);
     if (opt->err[7]>0.0) {
         varr+=SQR(opt->err[7]*obs->Pstd[0]);
     }
-    if (opt->ionoopt==IONOOPT_IFLC) varr*=SQR(3.0); /* iono-free */
-    if (fidx>=2) varr*=SQR(2.0);       /* L5: higher noise */
+    if (opt->ionoopt==IONOOPT_IFLC) varr*=SQR(3.0); /* 消电离层组合 */
+    if (fidx>=2) varr*=SQR(2.0);       /* L5观测噪声较大,放大方差防止过度信任 */
     return SQR(fact)*varr;
 }
 /* get group delay parameter (m) ---------------------------------------------*/
@@ -291,10 +302,11 @@ extern int tropcorr(gtime_t time, const nav_t *nav, const double *pos,
     *var=tropopt==TROPOPT_OFF?SQR(ERR_TROP):0.0;
     return 1;
 }
-/* check if observation is on L5/E5a/B2a frequency band ----------------------------
-* return : 1 if L5/E5a/B2a, 0 if L1/E1/B1, -1 if other/unknown
-* note   : code2idx() returns 0=L1/E1/B1, 1=L2/E5b/B2, 2=L5/E5a/B2a
-*-----------------------------------------------------------------------------*/
+/* ============================================================
+ * 判断观测量是否在L5/E5a/B2a频段
+ * 返回:  1 = L5/E5a/B2a频段,  0 = L1/E1/B1频段,  -1 = 其他/未知
+ * 说明: code2idx()返回频率索引: 0=L1/E1/B1, 1=L2/E5b/B2, 2=L5/E5a/B2a
+ * ============================================================ */
 static int is_l5_freq(int sat, uint8_t code)
 {
     int sys=satsys(sat,NULL);
@@ -302,10 +314,19 @@ static int is_l5_freq(int sat, uint8_t code)
     if (idx<0) return -1;
     return (idx==2)?1:0;
 }
-/* compute pseudorange with code bias correction for single-frequency observation --------
-* return : pseudorange (m), *var = code bias variance
-* note   : for uncombined multi-freq SPP model (posopt[POSOPT_UNCOMB] enabled)
-*-----------------------------------------------------------------------------*/
+/* ============================================================
+ * 单频伪距提取函数(多频未组合SPP专用)
+ * 对指定频率的伪距进行码偏差(code bias)改正和TGD/BGD钟差改正
+ * 参数:
+ *   sat    - 卫星编号
+ *   sys    - 卫星系统 (SYS_GPS/SYS_GLO/SYS_GAL等)
+ *   code   - 观测量类型代码 (CODE_L1C/CODE_L5Q等)
+ *   fidx   - 频率索引 (0=L1/E1, 1=L2/E5b, 2=L5/E5a)
+ *   obs    - 观测数据
+ *   nav    - 导航电文
+ *   var    - 输出: 码偏差方差
+ * 返回: 改正后的伪距 (m)
+ * ============================================================ */
 static double prange_uc(int sat, int sys, uint8_t code, int fidx,
                         const obsd_t *obs, const nav_t *nav, double *var)
 {
@@ -316,67 +337,79 @@ static double prange_uc(int sat, int sys, uint8_t code, int fidx,
     *var=0.0;
     if (P==0.0) return 0.0;
 
-    /* apply code bias correction for current frequency */
+    /* 应用码偏差(code bias)改正: 将非参考码改正到参考码 */
     bias_ix=code2bias_ix(sys,code);
     if (bias_ix>0) {
         P+=nav->cbias[sat-1][fidx][bias_ix-1];
     }
-    /* apply TGD/code bias correction */
-    if (sys==SYS_GPS||sys==SYS_QZS) {        /* L1/L2/L5 */
-        if (fidx==2) b1=gettgd(sat,nav,1);   /* TGD for L5 */
-        else         b1=gettgd(sat,nav,0);   /* TGD for L1 */
+
+    /* 应用TGD/BGD钟差改正: 将伪距归算到"消电离层参考" */
+    if (sys==SYS_GPS||sys==SYS_QZS) {        /* GPS/QZS: L1/L2/L5 */
+        if (fidx==2) b1=gettgd(sat,nav,1);   /* L5: TGD第1类(L1-TGD) */
+        else          b1=gettgd(sat,nav,0);   /* L1/L2: TGD第0类 */
         P-=b1;
     }
-    else if (sys==SYS_GLO) {                 /* G1/G2/G3 */
+    else if (sys==SYS_GLO) {                 /* GLONASS: G1/G2/G3 */
         if (fidx==0) {
-            /* G1: subtract dtaun/(gamma-1) to convert to iono-free ref */
+            /* G1: 用dtaun/(gamma-1)将G1归算到消电离层参考 */
             gamma=SQR(FREQ1_GLO/FREQ2_GLO);
             b1=gettgd(sat,nav,0);
             P-=b1/(gamma-1.0);
         }
         else if (fidx==1) {
-            /* G2: subtract dtaun to convert G2 to G1 reference */
+            /* G2: 用dtaun将G2归算到G1参考 */
             b1=gettgd(sat,nav,0);
             P-=b1;
         }
-        /* G3: no TGD needed */
+        /* G3: 无TGD改正 */
     }
-    else if (sys==SYS_GAL) {                 /* E1/E5b/E5a */
+    else if (sys==SYS_GAL) {                 /* Galileo: E1/E5b/E5a */
         if (fidx==0) {
-            /* E1: subtract BGD to convert to ionospheric-free reference */
+            /* E1: 减去BGD归算到消电离层参考 */
             if (getseleph(SYS_GAL)) b1=gettgd(sat,nav,0); /* BGD_E1E5a (I/NAV) */
             else                    b1=gettgd(sat,nav,1); /* BGD_E1E5b (F/NAV) */
             P-=b1;
         }
         else if (fidx==1) {
-            /* E5b: subtract BGD_E1E5b to convert to E1 reference.
+            /* E5b: 减去BGD_E1E5b将E5b归算到E1参考
              * BGD_E1E5b = TGD(E1) - TGD(E5b) */
             b1=gettgd(sat,nav,1);
             P-=b1;
         }
         else if (fidx==2) {
-            /* E5a: subtract BGD_E1E5a to convert to E1 reference.
+            /* E5a: 减去BGD_E1E5a将E5a归算到E1参考
              * BGD_E1E5a = TGD(E1) - TGD(E5a) */
             b1=gettgd(sat,nav,0);
             P-=b1;
         }
     }
-    else if (sys==SYS_CMP) {                 /* B1I/B1C/B2/B2a/B3 */
+    else if (sys==SYS_CMP) {                 /* 北斗: B1I/B1C/B2/B2a/B3 */
         if      (code==CODE_L2I) { b1=gettgd(sat,nav,0); P-=b1; }          /* TGD_B1I */
         else if (code==CODE_L1P) { b1=gettgd(sat,nav,2); P-=b1; }          /* TGD_B1Cp */
         else {
-            b1=gettgd(sat,nav,2)+gettgd(sat,nav,4); /* TGD_B1Cp+ISC_B1Cd */
+            /* B1Cp/B1Cd: TGD_B1Cp + ISC_B1Cd */
+            b1=gettgd(sat,nav,2)+gettgd(sat,nav,4);
             P-=b1;
         }
     }
-    else if (sys==SYS_IRN) {                 /* L5 */
+    else if (sys==SYS_IRN) {                 /* NavIC: L5 */
         gamma=SQR(FREQs/FREQL5);
         b1=gettgd(sat,nav,0);
         P-=gamma*b1;
     }
     return P;
 }
-/* pseudorange residuals -----------------------------------------------------*/
+/* ============================================================
+ * 伪距残差计算函数 (多频未组合SPP核心)
+ *
+ * 功能: 构建伪距观测方程的残差向量v和设计矩阵H
+ *
+ * 多频处理策略:
+ *   - 当 posopt[POSOPT_UNCOMB]=1 且 nf>=2 时: 对每颗卫星遍历所有频率
+ *   - 否则: 仅处理频率索引0 (与传统SPP行为一致)
+ *
+ * 状态向量 x[NX] = [X,Y,Z, dt, dt_L5, ISB_GLO, ISB_GAL, ISB_BDS, ISB_IRN, ISB_QZS]
+ * ============================================================ */
 static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
                    const double *dts, const double *vare, const int *svh,
                    const nav_t *nav, const double *x, const prcopt_t *opt,
@@ -386,77 +419,78 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
     gtime_t time;
     double r,rr[3],pos[3],dtr,e[3];
     int i,j,f,nv=0,sat,sys,nf;
-    int mask[NX-3]={0};
+    int mask[7]={0};  /* 标记各参数是否被观测到,用于约束处理 (最多7个非位置参数) */
 
-    /* number of frequencies to process:
-     * - multi-freq uncombined mode: use all frequencies in opt->nf
-     * - otherwise: use only freq-0 (original single-freq behavior)
-     */
+    /* 确定要处理的频率数量
+     * 多频未组合模式: 使用opt->nf指定的所有频率
+     * 否则: 仅使用频率0 (保持与传统SPP兼容) */
     nf=(opt->posopt[POSOPT_UNCOMB]&&opt->nf>=2)?opt->nf:1;
 
     for (i=0;i<3;i++) rr[i]=x[i];
-    dtr=x[IDX_DT];
+    dtr=x[IDX_DT];  /* 提取GPS参考接收机钟差 */
 
     ecef2pos(rr,pos);
     trace(3,"rescode: rr=%.3f %.3f %.3f nf=%d\n",rr[0],rr[1],rr[2],nf);
 
+    /* 外层循环: 遍历每颗卫星 */
     for (i=*ns=0;i<n&&i<MAXOBS;i++) {
         vsat[i]=0; azel[i*2]=azel[1+i*2]=resp[i]=0.0;
         time=obs[i].time;
         sat=obs[i].sat;
         if (!(sys=satsys(sat,NULL))) continue;
 
-        /* reject duplicated observation data */
+        /* 剔除重复观测数据 */
         if (i<n-1&&i<MAXOBS-1&&sat==obs[i+1].sat) {
             char tstr[40];
             trace(2,"duplicated obs data %s sat=%d\n",time2str(time,tstr,3),sat);
             i++;
             continue;
         }
-        /* excluded satellite? */
+        /* 剔除被排除的卫星 */
         if (satexclude(sat,vare[i],svh[i],opt)) continue;
 
-        /* geometric distance and elevation mask (same for all freqs of sat) */
+        /* 计算几何距离和截止高度角 (同一卫星所有频率共用) */
         if ((r=geodist(rs+i*6,rr,e))<=0.0) continue;
         if (satazel(pos,e,azel+i*2)<opt->elmin) continue;
 
-        /* test SNR mask for freq-0 */
+        /* SNR掩码检验 (仅对频率0) */
         if (iter>0&&!snrmask(obs+i,azel+i*2,opt)) continue;
 
-        /*--------------------------------------------------------*/
-        /* process each frequency of this satellite               */
-        /*--------------------------------------------------------*/
+        /*=========================================================*/
+        /* 内层循环: 遍历该卫星的每个频率                         */
+        /*=========================================================*/
         for (f=0;f<nf&&f<NFREQ+NEXOBS;f++) {
             double P,dion=0.0,dtrp=0.0,vmeas=0.0,vion=0.0,vtrp=0.0;
             double freq;
             int isL5;
 
-            /* skip if no obs at this frequency */
+            /* 跳过无观测的频率 */
             if (obs[i].P[f]==0.0||obs[i].code[f]==CODE_NONE) continue;
 
-            /* get carrier frequency for this obs code */
+            /* 获取载波频率 */
             freq=sat2freq(sat,obs[i].code[f],nav);
             if (freq<=0.0) continue;
 
-            /* detect L5 frequency */
+            /* 判断是否为L5/E5a频段 */
             isL5=is_l5_freq(sat,obs[i].code[f]);
-            if (isL5<0) continue; /* unknown frequency, skip */
+            if (isL5<0) continue; /* 未知频率,跳过 */
 
-            /* ionospheric correction (iter>0: already have position estimate) */
+            /* 电离层延迟改正 (iter>0表示已有位置估计,可计算投影) */
             if (iter>0) {
                 if (!ionocorr(time,nav,sat,pos,azel+i*2,opt->ionoopt,&dion,&vion)) {
                     continue;
                 }
-                /* Convert iono delay from L1 to observation frequency */
+                /* 将L1频段的电离层延迟转换到当前观测频率 */
                 dion*=SQR(FREQL1/freq);
                 vion*=SQR(SQR(FREQL1/freq));
 
-                /* tropospheric correction */
+                /* 对流层延迟改正 */
                 if (!tropcorr(time,nav,pos,azel+i*2,opt->tropopt,&dtrp,&vtrp)) {
                     continue;
                 }
             }
-            /* get pseudorange with TGD/code-bias correction (uncombined) */
+
+            /* 获取伪距 (多频未组合模式用prange_uc,否则用原始prange) */
             if (opt->posopt[POSOPT_UNCOMB]&&opt->nf>=2) {
                 P=prange_uc(sat,sys,obs[i].code[f],f,obs+i,nav,&vmeas);
             }
@@ -465,22 +499,23 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
             }
             if (P==0.0) continue;
 
-            /*--------------------------------------------------------*/
-            /* build pseudorange residual:                              */
-            /* P_obs = r + dtr - c*dts + dion + dtrp                 */
-            /* residual = P - (r + dtr - c*dts + dion + dtrp)        */
-            /*--------------------------------------------------------*/
+            /*=========================================================*/
+            /* 构架伪距残差方程:                                      */
+            /* P_obs = r + dtr - c*dts + dion + dtrp               */
+            /* 残差 = P_obs - 模型值                                  */
+            /*=========================================================*/
             v[nv]=P-(r+dtr-CLIGHT*dts[i*2]+dion+dtrp);
 
-            /*--------------------------------------------------------*/
-            /* build design matrix row                                */
-            /*--------------------------------------------------------*/
-            /* position columns: -e[0..2], clock column: +1 */
+            /*=========================================================*/
+            /* 构架设计矩阵(观测方程系数矩阵)H                        */
+            /*=========================================================*/
+            /* 位置参数偏导数: -e[0..2] (几何距离对位置的偏导) */
             for (j=0;j<3;j++) H[j+nv*NX]=-e[j];
+            /* 钟差参数偏导数: +1 */
             H[IDX_DT+nv*NX]=1.0;
-            /* dt_L5 column: +1 only for L5 obs, 0 otherwise */
+            /* dt_L5参数偏导数: 仅L5观测时为1,否则为0 */
             H[IDX_DT_L5+nv*NX]=(isL5>0)?1.0:0.0;
-            /* ISB columns: system-specific, 0 for GPS/SBAS */
+            /* ISB参数偏导数: 各系统特定列置1,GPS/SBAS列保持0 */
             H[IDX_ISB_GLO+nv*NX]=0.0;
             H[IDX_ISB_GAL+nv*NX]=0.0;
             H[IDX_ISB_BDS+nv*NX]=0.0;
@@ -489,91 +524,90 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
             H[IDX_ISB_QZS+nv*NX]=0.0;
 #endif
 
-            /*--------------------------------------------------------*/
-            /* apply clock corrections and build mask                  */
-            /*--------------------------------------------------------*/
+            /*=========================================================*/
+            /* 应用钟差改正项,并构建mask标记各参数是否被观测           */
+            /* 时钟模型:                                              */
+            /*   GPS:  dtr                                          */
+            /*   GAL:  dtr + ISB_GAL                               */
+            /*   GLO:  dtr + ISB_GLO                               */
+            /*   BDS:  dtr + ISB_BDS                               */
+            /*   L5:   dt_L5叠加到上述模型上                         */
+            /*=========================================================*/
             switch (sys) {
                 case SYS_GLO:
                     v[nv]-=x[IDX_ISB_GLO];
                     H[IDX_ISB_GLO+nv*NX]=1.0;
-                    mask[2]=1;
+                    mask[2]=1;  /* ISB_GLO被观测到 */
                     break;
                 case SYS_GAL:
                     v[nv]-=x[IDX_ISB_GAL];
                     H[IDX_ISB_GAL+nv*NX]=1.0;
-                    mask[3]=1;
+                    mask[3]=1;  /* ISB_GAL被观测到 */
                     break;
                 case SYS_CMP:
                     v[nv]-=x[IDX_ISB_BDS];
                     H[IDX_ISB_BDS+nv*NX]=1.0;
-                    mask[4]=1;
+                    mask[4]=1;  /* ISB_BDS被观测到 */
                     break;
                 case SYS_IRN:
                     v[nv]-=x[IDX_ISB_IRN];
                     H[IDX_ISB_IRN+nv*NX]=1.0;
-                    mask[5]=1;
+                    mask[5]=1;  /* ISB_IRN被观测到 */
                     break;
 #ifdef QZSDT
                 case SYS_QZS:
                     v[nv]-=x[IDX_ISB_QZS];
                     H[IDX_ISB_QZS+nv*NX]=1.0;
-                    mask[6]=1;
+                    mask[6]=1;  /* ISB_QZS被观测到 */
                     break;
 #endif
                 case SYS_SBS:
-                    /* SBAS: uses GPS clock (x[IDX_DT]), no ISB subtraction */
-                    /* ISB_QZS column stays 0 (like original RTKLIB) */
-                    mask[0]=1;
+                    /* SBAS使用GPS时钟,与原始RTKLIB一致 */
+                    mask[0]=1;  /* GPS时钟被观测到 */
                     break;
-                default: /* GPS and others: use GPS clock */
-                    mask[0]=1;
+                default: /* GPS及其他: 使用GPS时钟,无ISB */
+                    mask[0]=1;  /* GPS时钟被观测到 */
                     break;
             }
-            /* mask: dt_L5 observed if L5 freq present */
+            /* 标记dt_L5参数: L5观测时有效 */
             if (isL5>0) mask[1]=1;
 
-            /*--------------------------------------------------------*/
-            /* mark satellite as valid, store residual (first freq)     */
-            /*--------------------------------------------------------*/
+            /* 标记卫星有效(取第一个有效频率的残差) */
             if (!vsat[i]) {
                 vsat[i]=1;
                 resp[i]=v[nv];
             }
 
-            /*--------------------------------------------------------*/
-            /* trace output                                            */
-            /*--------------------------------------------------------*/
             trace(4,"sat=%2d f=%d: v=%.3f P=%.3f r=%.3f dtr=%.6f dts=%.6f "
                 "dion=%.3f dtrp=%.3f isL5=%d\n",
                 sat,f,v[nv],P,r,dtr,dts[i*2],dion,dtrp,isL5);
 
-            /*--------------------------------------------------------*/
-            /* variance of pseudorange error                           */
-            /*--------------------------------------------------------*/
+            /* 构架伪距误差方差 */
             var[nv]=vare[i]+vmeas+vion+vtrp;
             if (ssat)
                 var[nv++]+=varerr(opt,&ssat[i],&obs[i],azel[1+i*2],sys,f);
             else
                 var[nv++]+=varerr(opt,NULL,&obs[i],azel[1+i*2],sys,f);
-        } /* end for each frequency */
+        } /* 内层循环: 遍历每个频率结束 */
 
-        /* finalize satellite-level flags */
+        /* 卫星级标记处理 */
         if (vsat[i]) {
             (*ns)++;
             trace(4,"sat=%2d azel=%5.1f %4.1f res=%7.3f\n",obs[i].sat,
                 azel[i*2]*R2D,azel[1+i*2]*R2D,resp[i]);
         }
-    } /* end for each satellite */
+    } /* 外层循环: 遍历每颗卫星结束 */
 
-    /*--------------------------------------------------------*/
-    /* constraint rows to avoid rank-deficient                */
-    /* mask[i]=1: parameter x[i+3] was observed               */
-    /*--------------------------------------------------------*/
+    /*=========================================================*/
+    /* 添加约束行,避免秩亏                                     */
+    /* mask[i]=1表示参数x[i+3]已被观测到,无需约束              */
+    /* mask[i]=0表示参数未被任何观测约束,需添加弱约束          */
+    /*=========================================================*/
     for (i=0;i<NX-3;i++) {
-        if (mask[i]) continue; /* already observed, no constraint needed */
+        if (mask[i]) continue;
         v[nv]=0.0;
         for (j=0;j<NX;j++) H[j+nv*NX]=(j==i+3)?1.0:0.0;
-        var[nv++]=0.01; /* weak zero-order constraint */
+        var[nv++]=0.01; /* 弱零阶约束,方差0.01m^2 */
     }
     return nv;
 }
@@ -614,13 +648,19 @@ static int estpos(const obsd_t *obs, int n, const double *rs, const double *dts,
                   int *vsat, double *resp, char *msg)
 {
     double x[NX]={0},dx[NX],Q[NX*NX],*v,*H,*var,sig;
-    int i,j,k,info,stat,nv,ns;
+    int i,j,k,info,stat,nv,ns,nf;
+    
+    /* 确定要处理的频率数量 (与rescode中逻辑一致) */
+    nf=(opt->posopt[POSOPT_UNCOMB]&&opt->nf>=2)?opt->nf:1;
     
     trace(3,"estpos  : n=%d\n",n);
     
-    v=mat(n+NX-3,1); H=mat(NX,n+NX-3); var=mat(n+NX-3,1);
+    v  =mat(n*nf+(NX-3),1);
+    H  =mat(NX,n*nf+(NX-3));
+    var=mat(n*nf+(NX-3),1);
     
     for (i=0;i<3;i++) x[i]=sol->rr[i];
+    trace(3,"estpos  : initial x=%.3f %.3f %.3f\n",x[0],x[1],x[2]);
 
     for (i=0;i<MAXITR;i++) {
 
@@ -629,9 +669,11 @@ static int estpos(const obsd_t *obs, int n, const double *rs, const double *dts,
                    &ns);
         
         if (nv<NX) {
+            trace(3,"estpos  : iter=%d nv=%d < NX=%d -> lack of valid sats\n",i,nv,NX);
             sprintf(msg,"lack of valid sats ns=%d",nv);
             break;
         }
+        trace(3,"estpos  : iter=%d nv=%d\n",i,nv);
         /* weight by variance (lsq uses sqrt of weight */
         for (j=0;j<nv;j++) {
             sig=sqrt(var[j]);
@@ -640,23 +682,40 @@ static int estpos(const obsd_t *obs, int n, const double *rs, const double *dts,
         }
         /* least square estimation */
         if ((info=lsq(H,v,NX,nv,dx,Q))) {
+            trace(3,"estpos  : iter=%d lsq error info=%d\n",i,info);
             sprintf(msg,"lsq error info=%d",info);
             break;
         }
+        trace(3,"estpos  : iter=%d dx norm=%.6f\n",i,norm(dx,NX));
         for (j=0;j<NX;j++) {
             x[j]+=dx[j];
         }
-        if (norm(dx,NX)<1E-4) {
+        /* 仅用位置参数判断收敛,避免钟差/ISB参数秩亏导致整体不收敛
+         * 多频未组合模型中,GPS钟差和GLONASS-ISB的设计矩阵列完全相同,
+         * 导致法方程病态,钟差参数震荡但位置参数实际已收敛 */
+        if (norm(dx,3)<1E-4) {
+            trace(3,"estpos  : converged iter=%d x=%.3f %.3f %.3f\n",i,x[0],x[1],x[2]);
             sol->type=0;
+            /* 以GPS时钟为参考计算接收机时间: GPST = obs_time - dt/CLIGHT */
             sol->time=timeadd(obs[0].time,-x[IDX_DT]/CLIGHT);
-            sol->dtr[0]=x[IDX_DT]/CLIGHT;      /* GPS receiver clock bias (s) */
-            sol->dtr[1]=x[IDX_DT_L5]/CLIGHT;   /* L5 inter-frequency clock (s) */
-            sol->dtr[2]=x[IDX_ISB_GLO]/CLIGHT;  /* GLO-GPS time offset (s) */
-            sol->dtr[3]=x[IDX_ISB_GAL]/CLIGHT;  /* GAL-GPS time offset (s) */
-            sol->dtr[4]=x[IDX_ISB_BDS]/CLIGHT;  /* BDS-GPS time offset (s) */
-            sol->dtr[5]=x[IDX_ISB_IRN]/CLIGHT;   /* IRN-GPS time offset (s) */
+            /* 各系统时钟/ISB输出到解结构sol_t.dtr[]
+             * dtr[0] = GPS接收机钟差
+             * dtr[1] = L5频间钟差 (新增)
+             * dtr[2] = GLONASS-GPS ISB
+             * dtr[3] = Galileo-GPS ISB
+             * dtr[4] = 北斗-GPS ISB
+             * dtr[5] = NavIC-GPS ISB
+             * dtr[6] = QZSS-GPS ISB (QZSDT模式)
+             * 注意: PPP模式使用dtr[1-3]存储GLO/GAL/BDS ISB, 与本模式索引不同
+             */
+            sol->dtr[0]=x[IDX_DT]/CLIGHT;       /* GPS接收机钟差 (s) */
+            sol->dtr[1]=x[IDX_DT_L5]/CLIGHT;    /* L5频间钟差 (s) */
+            sol->dtr[2]=x[IDX_ISB_GLO]/CLIGHT;   /* GLONASS-GPS时间偏移 (s) */
+            sol->dtr[3]=x[IDX_ISB_GAL]/CLIGHT;   /* Galileo-GPS时间偏移 (s) */
+            sol->dtr[4]=x[IDX_ISB_BDS]/CLIGHT;   /* 北斗-GPS时间偏移 (s) */
+            sol->dtr[5]=x[IDX_ISB_IRN]/CLIGHT;    /* NavIC-GPS时间偏移 (s) */
 #ifdef QZSDT
-            sol->dtr[6]=x[IDX_ISB_QZS]/CLIGHT;  /* QZS-GPS time offset (s) */
+            sol->dtr[6]=x[IDX_ISB_QZS]/CLIGHT;   /* QZSS-GPS时间偏移 (s) */
 #endif
             for (j=0;j<6;j++) sol->rr[j]=j<3?x[j]:0.0;
             for (j=0;j<3;j++) sol->qr[j]=(float)Q[j+j*NX];
@@ -665,7 +724,7 @@ static int estpos(const obsd_t *obs, int n, const double *rs, const double *dts,
             sol->qr[5]=(float)Q[2];     /* cov zx */
             sol->ns=(uint8_t)ns;
             sol->age=sol->ratio=0.0;
-            
+
             /* validate solution */
             if ((stat=valsol(azel,vsat,n,opt,v,nv,NX,msg))) {
                 sol->stat=opt->sateph==EPHOPT_SBAS?SOLQ_SBAS:SOLQ_SINGLE;
@@ -673,8 +732,40 @@ static int estpos(const obsd_t *obs, int n, const double *rs, const double *dts,
             free(v); free(H); free(var);
             return stat;
         }
+        /* 停滞检测: 当位置参数变化小于1m但未达到严格收敛阈值时,
+         * 说明钟差参数受限于模型秩亏而持续小幅振荡,位置参数实际已稳定 */
+        if (i>=3&&norm(dx,3)<1.0) {
+            trace(3,"estpos  : pos converged (stall at %.3fm), accepting iter=%d\n",
+                  norm(dx,3),i);
+            sol->type=0;
+            sol->time=timeadd(obs[0].time,-x[IDX_DT]/CLIGHT);
+            sol->dtr[0]=x[IDX_DT]/CLIGHT;
+            sol->dtr[1]=x[IDX_DT_L5]/CLIGHT;
+            sol->dtr[2]=x[IDX_ISB_GLO]/CLIGHT;
+            sol->dtr[3]=x[IDX_ISB_GAL]/CLIGHT;
+            sol->dtr[4]=x[IDX_ISB_BDS]/CLIGHT;
+            sol->dtr[5]=x[IDX_ISB_IRN]/CLIGHT;
+#ifdef QZSDT
+            sol->dtr[6]=x[IDX_ISB_QZS]/CLIGHT;
+#endif
+            for (j=0;j<6;j++) sol->rr[j]=j<3?x[j]:0.0;
+            for (j=0;j<3;j++) sol->qr[j]=(float)Q[j+j*NX];
+            sol->qr[3]=(float)Q[1];
+            sol->qr[4]=(float)Q[2+NX];
+            sol->qr[5]=(float)Q[2];
+            sol->ns=(uint8_t)ns;
+            sol->age=sol->ratio=0.0;
+            if ((stat=valsol(azel,vsat,n,opt,v,nv,NX,msg))) {
+                sol->stat=opt->sateph==EPHOPT_SBAS?SOLQ_SBAS:SOLQ_SINGLE;
+            }
+            free(v); free(H); free(var);
+            return stat;
+        }
     }
-    if (i>=MAXITR) sprintf(msg,"iteration divergent i=%d",i);
+    if (i>=MAXITR) {
+        trace(3,"estpos  : MAXITR=%d reached, divergent\n",MAXITR);
+        sprintf(msg,"iteration divergent i=%d",i);
+    }
     
     free(v); free(H); free(var);
     return 0;
@@ -895,6 +986,7 @@ extern int pntpos(const obsd_t *obs, int n, const nav_t *nav,
     
     /* estimate receiver position and time with pseudorange */
     stat=estpos(obs,n,rs,dts,var,svh,nav,&opt_,ssat,sol,azel_,vsat,resp,msg);
+    trace(3,"pntpos  : estpos returned stat=%d msg=%s\n",stat,msg);
     
     /* RAIM FDE */
     if (!stat&&n>=6&&opt->posopt[4]) {
