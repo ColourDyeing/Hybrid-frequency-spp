@@ -16,7 +16,7 @@ import io
 
 # 设置输入数据集的位置，以及解算结果文件
 DATA_SET = 'train'       # 选择数据文件夹
-SOL_TAG = 'spp-uduc'       # 解算结果文件标签
+SOL_TAG = 'spp-brdc'       # 解算结果文件标签
 datapath = '../data/'    # 相对python脚本的路径
 
 # 设置二进制文件和配置文件, 相对python脚本的路径
@@ -34,7 +34,8 @@ USE_DCB_BIA = False       # 是否使用DCB/BIA文件进行DCB和TGD校正 (True
                          # 关闭时: 仅使用星历中的TGD参数进行校正
 
 # 选择要处理的手机型号，留空则自动识别数据目录下所有机型文件夹名
-PHONES = ['mi8','pixel7pro','sm-g988b','sm-s908b']  # 为空时自动识别(所有机型)
+# PHONES = []
+PHONES = ['mi8','pixel6pro','pixel7','pixel7pro','s20ultra','s21ultra','s22ultra']  # 为空时自动识别(所有机型)
 
 # 设置观测和导航文件的匹配规则
 basefiles = '*0.2*o'                      # 观测文件, 支持多种扩展名
