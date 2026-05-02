@@ -116,16 +116,18 @@ static double gettgd(int sat, const nav_t *nav, int type)
     }
 }
 /* test SNR mask -------------------------------------------------------------*/
-static int snrmask(const obsd_t *obs, const double *azel, const prcopt_t *opt)
+/* snrmask: 多频未组合模式的SNR掩码检验，对指定频率索引检验信号质量
+ * 参数:
+ *   obs   - 观测数据
+ *   azel  - 方位角和高度角 (rad)
+ *   opt   - 处理选项
+ *   fidx  - 频率索引 (0=L1/E1/B1, 1=L2/E5b/B2, 2=L5/E5a/B2a)
+ * 返回: 0=信号质量差被剔除, 1=通过检验
+ */
+static int snrmask(const obsd_t *obs, const double *azel, const prcopt_t *opt, int fidx)
 {
-    int f2;
-
-    if (testsnr(0,0,azel[1],obs->SNR[0],&opt->snrmask)) {
+    if (testsnr(0,fidx,azel[1],obs->SNR[fidx],&opt->snrmask)) {
         return 0;
-    }
-    if (opt->ionoopt==IONOOPT_IFLC) {
-        f2=seliflc(opt->nf,satsys(obs->sat,NULL));
-        if (testsnr(0,f2,azel[1],obs->SNR[f2],&opt->snrmask)) return 0;
     }
     return 1;
 }
@@ -453,9 +455,6 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
         if ((r=geodist(rs+i*6,rr,e))<=0.0) continue;
         if (satazel(pos,e,azel+i*2)<opt->elmin) continue;
 
-        /* SNR掩码检验 (仅对频率0) */
-        if (iter>0&&!snrmask(obs+i,azel+i*2,opt)) continue;
-
         /*=========================================================*/
         /* 内层循环: 遍历该卫星的每个频率                         */
         /*=========================================================*/
@@ -474,6 +473,9 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
             /* 判断是否为L5/E5a频段 */
             isL5=is_l5_freq(sat,obs[i].code[f]);
             if (isL5<0) continue; /* 未知频率,跳过 */
+
+            /* SNR掩码检验: 对每个频率分别检验 */
+            if (iter>0&&!snrmask(obs+i,azel+i*2,opt,f)) continue;
 
             /* 电离层延迟改正 (iter>0表示已有位置估计,可计算投影) */
             if (iter>0) {

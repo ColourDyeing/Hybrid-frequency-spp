@@ -3736,11 +3736,18 @@ extern double ionppp(const double *pos, const double *azel, double re,
     /* Equivalent to 1/cos(asin(rp)) */
     return 1.0/sqrt(1.0-rp*rp);
 }
-/* select iono-free linear combination (L1/L2 or L1/L5) ----------------------*/
+///* select iono-free linear combination (L1/L2 or L1/L5) ----------------------*/
+//extern int seliflc(int optnf,int sys)
+//{
+//    /* use L1/L5 for Galileo if L5 is enabled */
+//    return((optnf==2||sys!=SYS_GAL)?1:2);
+//}
+/* select iono-free linear combination (L1/L5 or L1/L2) ----------------------*/
+/* L5优先作为智能手机IFLC第二频率 */
 extern int seliflc(int optnf,int sys)
 {
-    /* use L1/L5 for Galileo if L5 is enabled */
-    return((optnf==2||sys!=SYS_GAL)?1:2);
+    /* L5优先：Galileo系统或支持多频(optnf>2)选L5，其他默认L2 */
+    return((optnf>2||sys==SYS_GAL)?2:1);
 }
 /* troposphere model -----------------------------------------------------------
 * compute tropospheric delay by standard atmosphere and saastamoinen model
