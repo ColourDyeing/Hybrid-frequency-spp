@@ -91,7 +91,7 @@ static double varerr(const prcopt_t *opt, const ssat_t *ssat, const obsd_t *obs,
         if (fidx==2) snr_ref-=5.0; // L5增强
         varr+=SQR(opt->err[6])*pow(10,0.1*MAX(snr_ref-snr_rover,0));
     }
-    varr*=SQR(opt->eratio[0]);
+    varr*=SQR(opt->eratio[fidx]);   /* 按频率索引选取对应的 eratio */
     if (opt->err[7]>0.0) {
         varr+=SQR(opt->err[7]*obs->Pstd[0]);
     }
