@@ -5,6 +5,8 @@ create_kml.py - 读取真值文件和算法解算轨迹，生成 Google Earth KM
 import os
 import csv
 from datetime import datetime, timezone
+import sys
+import io
 from os.path import join, isfile, dirname, abspath, isabs
 from glob import glob
 
@@ -77,6 +79,11 @@ USE_GX_TRACK = False
 SCRIPT_DIR = dirname(abspath(__file__))
 datapath = abspath(join(SCRIPT_DIR, datapath))
 output_dir = abspath(join(SCRIPT_DIR, '..', 'data', OUTPUT_SUBDIR))
+
+# 解决Windows控制台中文编码问题
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True)
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', line_buffering=True)
 
 
 def read_csv(filepath):
