@@ -20,7 +20,7 @@ SOL_TAG = 'spp-uduc'       # 解算结果文件标签
 datapath = '../data/'    # 相对python脚本的路径
 
 # 设置二进制文件和配置文件, 相对python脚本的路径
-# binpath_rtklib  = "../rtklib/rnx2rtkp-uduc.exe"
+# binpath_rtklib  = "../rtklib/rnx2rtkp-origin.exe"
 binpath_rtklib = "D:/Desktop/RTKLIB-VS/Graduation/RTKLIB-PRO/app/consapp/rnx2rtkp/msc/Debug/rnx2rtkp.exe"   
 cfgfile_rtklib = "../config/Hybrid-frequency-spp.conf"
 
@@ -100,7 +100,7 @@ def run_rtklib(args_tuple):
 def main():
     datasets = np.sort(os.listdir(datadir))
 
-    print(f'找到 {len(datasets)} 个数据集: {list(datasets)}')
+    # print(f'找到 {len(datasets)} 个数据集: {list(datasets)}')
 
     rinexIn = []     # 存储需要进行rinex转换的传参列表
     rtklibIn = []    # 存储需要进行RTKLIB解算的传参列表
@@ -113,7 +113,7 @@ def main():
         else:                   
             phones = PHONES     # 处理指定机型，根据PHONES列表中的机型名自动识别
 
-        print(f'扫描 {dataset}: {len(phones)} 个手机')
+        # print(f'扫描 {dataset}: {len(phones)} 个手机')
 
         # 遍历每个手机文件夹
         for phone in phones:
@@ -165,8 +165,8 @@ def main():
             # 检查是否需要进行RTKLIB解算（用户要求、解算结果文件不存在、需要覆盖已存在的解算结果文件，则需要）
             if ENABLE_RTKLIB and (OVERWRITE_SOL == True or
                     len(glob(solFile)) == 0 or rinex == True):
-                print('Run_rtklib: ', join(dataset, phone),
-                      '  [DCB/BIA: %s]' % ('ON' if USE_DCB_BIA else 'OFF'))
+                # print('Run_rtklib: ', join(dataset, phone),
+                #       '  [DCB/BIA: %s]' % ('ON' if USE_DCB_BIA else 'OFF'))
                 rtklibIn.append((binpath_rtklib, cfgfile_rtklib,
                                  folder, obsFile, baseFile, navFile, biaFile, solFile, USE_DCB_BIA))
 
@@ -190,7 +190,7 @@ def main():
         with Pool() as pool:
             for _ in pool.imap_unordered(run_rtklib, rtklibIn, chunksize=1):
                 completed += 1
-                print(f'\r解算进度: {completed}/{total}', end='', flush=True)
+                # print(f'\r解算进度: {completed}/{total}', end='', flush=True)
         # 单线程模式，用以调试
         # for item in rtklibIn:
         #     run_rtklib(item)

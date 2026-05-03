@@ -68,7 +68,7 @@
 #define MIN_EL      (5.0*D2R)   /* min elevation for measurement error (rad) */
 # define MAX_GDOP   30          /* max gdop for valid solution  */
 
-/* pseudorange measurement error variance ------------------------------------*/
+/* pseudorange measurement error variance 改为根据频率与高度角联合定权------------------------------------*/
 static double varerr(const prcopt_t *opt, const ssat_t *ssat, const obsd_t *obs, double el, int sys, int fidx)
 {
     double fact=1.0,varr,snr_rover;
@@ -86,15 +86,16 @@ static double varerr(const prcopt_t *opt, const ssat_t *ssat, const obsd_t *obs,
     /* var = R^2*(a^2 + (b^2/sin(el) + c^2*(10^(0.1*(snr_max-snr_rover)))) + (d*rcv_std)^2) */
     varr=SQR(opt->err[1])+SQR(opt->err[2])/sin(el);
     if (opt->err[6]>0.0) {  /* if snr term not zero */
-        snr_rover=obs->SNR[0]!=0?obs->SNR[0]:opt->err[5]; /* 修复bug：直接使用obs中的snr而非ssat中的snr */ 
-        varr+=SQR(opt->err[6])*pow(10,0.1*MAX(opt->err[5]-snr_rover,0));
+        snr_rover=obs->SNR[fidx]!=0?obs->SNR[fidx]:opt->err[5]; /* 修复bug：直接使用obs中的snr而非ssat中的snr */
+        double snr_ref=opt->err[5];
+        if (fidx==2) snr_ref-=5.0; // L5增强
+        varr+=SQR(opt->err[6])*pow(10,0.1*MAX(snr_ref-snr_rover,0));
     }
     varr*=SQR(opt->eratio[0]);
     if (opt->err[7]>0.0) {
         varr+=SQR(opt->err[7]*obs->Pstd[0]);
     }
     if (opt->ionoopt==IONOOPT_IFLC) varr*=SQR(3.0); /* 消电离层组合 */
-    if (fidx>=2) varr*=SQR(2.0);       /* L5观测噪声较大,放大方差防止过度信任 */
     return SQR(fact)*varr;
 }
 /* get group delay parameter (m) ---------------------------------------------*/
