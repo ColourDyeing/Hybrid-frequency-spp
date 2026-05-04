@@ -68,6 +68,14 @@
 #define MIN_EL      (5.0*D2R)   /* min elevation for measurement error (rad) */
 # define MAX_GDOP   30          /* max gdop for valid solution  */
 
+// ===== IGG-III START =====
+// IGG-III 抗差估计参数
+#define IGG_K0       1.5         /* IGG-III 第一阈值 */
+#define IGG_K1       4.0         /* IGG-III 第二阈值 */
+#define IGG_WMIN     0.05        /* IGG权重下限保护 */
+#define IGG_REJ_THR  6.0         /* 粗差剔除阈值(标准化残差) */
+// ===== IGG-III END =====
+
 /* pseudorange measurement error variance 改为根据频率与高度角联合定权------------------------------------*/
 static double varerr(const prcopt_t *opt, const ssat_t *ssat, const obsd_t *obs, double el, int sys, int fidx)
 {
@@ -644,13 +652,29 @@ static int valsol(const double *azel, const int *vsat, int n,
     }
     return 1;
 }
-/* estimate receiver position ------------------------------------------------*/
+// ===== IGG-III START =====
+// 计算 IGG-III 标准化残差权因子
+// r: 标准化残差 v[i]/sigma_i (sigma_i = sqrt(var[i]))
+// 返回: 权因子 w (0~1)
+static double calc_igg_weight(double r)
+{
+    double a = fabs(r);
+    if (a <= IGG_K0) return 1.0;                           /* 无降权区: |r|<=k0 */
+    else if (a <= IGG_K1) return IGG_K0 / a;                /* 降权区: k0<|r|<=k1 */
+    else return (IGG_K0 * IGG_K1) / (a * a);                /* 淘汰区: |r|>k1 */
+}
+// ===== IGG-III END =====
+// estimate receiver position ------------------------------------------------*/
 static int estpos(const obsd_t *obs, int n, const double *rs, const double *dts,
                   const double *vare, const int *svh, const nav_t *nav,
                   const prcopt_t *opt, const ssat_t *ssat, sol_t *sol, double *azel,
                   int *vsat, double *resp, char *msg)
 {
     double x[NX]={0},dx[NX],Q[NX*NX],*v,*H,*var,sig;
+// ===== IGG-III START =====
+    double igg_w,r_norm;
+    int use_igg;
+// ===== IGG-III END =====
     int i,j,k,info,stat,nv,ns,nf;
     
     /* 确定要处理的频率数量 (与rescode中逻辑一致) */
@@ -677,11 +701,59 @@ static int estpos(const obsd_t *obs, int n, const double *rs, const double *dts,
             break;
         }
         trace(3,"estpos  : iter=%d nv=%d\n",i,nv);
-        /* weight by variance (lsq uses sqrt of weight */
-        for (j=0;j<nv;j++) {
-            sig=sqrt(var[j]);
-            v[j]/=sig;
-            for (k=0;k<NX;k++) H[k+j*NX]/=sig;
+        /* IGG-III robust estimation: iter>=1 且 posopt[POSOPT_IGG3]=1 时启用
+         * 阶段1(iter==0): 仅使用SNR随机模型权
+         * 阶段2(iter>=1): SNR权叠加IGG-III权因子
+         */
+        use_igg=(i>=1&&opt->posopt[POSOPT_IGG3]);
+
+        if (use_igg) {
+// ===== IGG-III FIX START =====
+            /* ---- IGG-III: 叠加式鲁棒加权 ----
+             * 第一步: 对所有观测计算标准化残差和IGG权因子(不修改v和H)
+             * 第二步: 统一应用加权缩放(一次性修改v和H)
+             */
+            for (j=0;j<nv;j++) {
+                /* ---- 约束行: var很小,仅做SNR归一化,不进行IGG处理 ---- */
+                if (var[j]<1e-6) {
+                    sig=sqrt(var[j]);
+                    v[j]/=sig;
+                    for (k=0;k<NX;k++) H[k+j*NX]/=sig;
+                    continue;
+                }
+
+                /* ---- 第一步: 保存原始残差,计算标准化残差和IGG权因子 ---- */
+                double v0=v[j];             /* 保存原始残差(用于标准化,不被后续修改污染) */
+                sig=sqrt(var[j]);
+                r_norm=v0/sig;              /* 标准化残差 = 原始残差/σ */
+                igg_w=calc_igg_weight(r_norm);
+
+                /* ---- 权重下限保护 ---- */
+                if (igg_w<IGG_WMIN) igg_w=IGG_WMIN;
+
+                /* ---- 粗差处理: 强制降权到下限(不破坏法方程结构) ---- */
+                if (fabs(r_norm)>IGG_REJ_THR) {
+                    trace(3,"estpos  : iter=%d obs=%d downweighted r_norm=%.2f\n",i,j,r_norm);
+                    igg_w=IGG_WMIN;         /* 方案1: 降权到下限,符合IGG渐进淘汰思想 */
+                }
+
+                /* ---- 第二步: 统一加权缩放 ----
+                 * 叠加权: P = (1/var) * igg_w
+                 * 等价于: v/=sig*sqrt(w), H/=sig*sqrt(w)
+                 * 保持了原有的SNR随机模型 */
+                double scale=sig*sqrt(igg_w);
+                v[j]=v0/scale;
+                for (k=0;k<NX;k++) H[k+j*NX]/=scale;
+            }
+// ===== IGG-III FIX END =====
+        }
+        else {
+            /* 仅SNR随机模型权(原有逻辑) */
+            for (j=0;j<nv;j++) {
+                sig=sqrt(var[j]);
+                v[j]/=sig;
+                for (k=0;k<NX;k++) H[k+j*NX]/=sig;
+            }
         }
         /* least square estimation */
         if ((info=lsq(H,v,NX,nv,dx,Q))) {

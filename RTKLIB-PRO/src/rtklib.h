@@ -468,6 +468,7 @@ extern "C" {
 #define POSOPT_RINEX   4                /* pos option: rinex header pos */
 #define POSOPT_RTCM    5                /* pos option: rtcm/raw station pos */
 #define POSOPT_UNCOMB  6                /* pos option: multi-freq uncombined SPP with L5 clock */
+#define POSOPT_IGG3    7                /* pos option: IGG-III robust estimation in SPP */
 
 #define STR_NONE     0                  /* stream type: none */
 #define STR_SERIAL   1                  /* stream type: serial */
@@ -1082,7 +1083,7 @@ typedef struct {        /* processing options type */
     int  initrst;       /* initialize by restart */
     int  outsingle;     /* output single by dgps/float/fix/ppp outage */
     char rnxopt[2][256]; /* rinex options {rover,base} */
-    int  posopt[7];     /* positioning options (posopt[6]=multi-freq uncombined SPP) */
+    int  posopt[8];     /* positioning options (posopt[6]=multi-freq uncombined SPP, posopt[7]=IGG-III) */
     int  syncsol;       /* solution sync mode (0:off,1:on) */
     double odisp[2][2][11][3]; // Ocean tide loading parameters {rov,base}{amp,phase}
     int  freqopt;       /* disable L2-AR */
