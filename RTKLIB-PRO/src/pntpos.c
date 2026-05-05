@@ -70,8 +70,8 @@
 
 // ===== IGG-III START =====
 // IGG-III 抗差估计参数
-#define IGG_K0       1.5         /* IGG-III 第一阈值 */
-#define IGG_K1       4.0         /* IGG-III 第二阈值 */
+#define IGG_K0       2.0         /* IGG-III 第一阈值 */
+#define IGG_K1       5.0         /* IGG-III 第二阈值 */
 #define IGG_WMIN     0.05        /* IGG权重下限保护 */
 #define IGG_REJ_THR  6.0         /* 粗差剔除阈值(标准化残差) */
 // ===== IGG-III END =====

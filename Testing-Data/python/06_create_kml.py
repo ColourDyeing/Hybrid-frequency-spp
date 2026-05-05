@@ -37,12 +37,12 @@ ALTITUDE_MODE = 'clampToGround'
 # KML 颜色格式为 aabbggrr (透明度, 蓝色, 绿色, 红色)，例如:
 #   红色   ff0000ff   蓝色   ffff0000
 #   绿色   ff00ff00   黄色   ff00ffff
-#   紫色   ff7f00ff   橙色   ff0080ff
+#   紫色   ff7f00ff   橙色   ff00a0ff
 SOL_ALGOS = [
-    ('spp-brdc', 'ffff0000', 3),   # 蓝色 - spp-brdc(baseline)
-    ('spp-uduc', 'ff00ff00', 3),   # 绿色 - spp-uduc
-    # ('spp-brdc', 'ff0000ff', 3),  # 红色
-    # ('spp-igg', 'ff7f00ff', 3),  # 紫色
+    ('spp-brdc', 'ffff0000', 5),   # 蓝色 - spp-brdc(baseline)
+    ('spp-uduc', 'ff00ff00', 4),   # 绿色 - spp-uduc
+    ('spp-uduc-rm',      'ff00a0ff', 6),  # 橙色, 粗, 不透明(底层)
+    ('spp-uduc-rm-igg3', 'ffffff00', 2),  # 青色, 细, 半透明(顶层)
 ]
 
 # 真值轨迹的独立颜色和线宽（不受 SOL_ALGOS 影响）
