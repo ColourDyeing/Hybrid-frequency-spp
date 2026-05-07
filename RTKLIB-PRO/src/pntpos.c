@@ -68,13 +68,12 @@
 #define MIN_EL      (5.0*D2R)   /* min elevation for measurement error (rad) */
 # define MAX_GDOP   30          /* max gdop for valid solution  */
 
-// ===== IGG-III START =====
-// IGG-III 抗差估计参数
-#define IGG_K0       2.0         /* IGG-III 第一阈值 */
-#define IGG_K1       5.0         /* IGG-III 第二阈值 */
-#define IGG_WMIN     0.05        /* IGG权重下限保护 */
-#define IGG_REJ_THR  6.0         /* 粗差剔除阈值(标准化残差) */
-// ===== IGG-III END =====
+// ===== Adaptive IGG-III START =====
+// 自适应IGG-III抗差估计参数
+#define IGG_WMIN     0.05        /* IGG权重下限(避免矩阵病态和秩亏) */
+#define IGG_M_MIN    0.5         /* IQR最小值保护(卫星数少时数值稳定) */
+#define IGG_K1_MIN   1.0         /* k1-k0最小差值保护 */
+// ===== Adaptive IGG-III END =====
 
 /* pseudorange measurement error variance 改为根据频率与高度角联合定权------------------------------------*/
 static double varerr(const prcopt_t *opt, const ssat_t *ssat, const obsd_t *obs, double el, int sys, int fidx)
@@ -652,18 +651,115 @@ static int valsol(const double *azel, const int *vsat, int n,
     }
     return 1;
 }
-// ===== IGG-III START =====
-// 计算 IGG-III 标准化残差权因子
-// r: 标准化残差 v[i]/sigma_i (sigma_i = sqrt(var[i]))
-// 返回: 权因子 w (0~1)
-static double calc_igg_weight(double r)
+// ===== Adaptive IGG-III START =====
+// 计算经典大地测量版IGG-III等价权因子
+// a: 标准化残差的绝对值 fabs(r_norm)
+// k0: 下阈值, k1: 上阈值
+// 返回: 权因子 w (IGG_WMIN ~ 1.0)
+static double calc_classic_igg_weight(double a, double k0, double k1)
 {
-    double a = fabs(r);
-    if (a <= IGG_K0) return 1.0;                           /* 无降权区: |r|<=k0 */
-    else if (a <= IGG_K1) return IGG_K0 / a;                /* 降权区: k0<|r|<=k1 */
-    else return (IGG_K0 * IGG_K1) / (a * a);                /* 淘汰区: |r|>k1 */
+    if (a <= k0) {
+        return 1.0;                                      /* 无降权区: |r|<=k0 */
+    }
+    else if (a <= k1) {
+        /* 降权区: k0<|r|<=k1, 使用二次抛物线过渡 */
+        return (k0 / a) * pow((k1 - a) / (k1 - k0), 2.0);
+    }
+    else {
+        return IGG_WMIN;                                 /* 异常区: |r|>k1, 降权到下限 */
+    }
 }
-// ===== IGG-III END =====
+
+/* 四分位统计函数
+ * a: 输入数组, n: 元素个数
+ * Q1: 输出下四分位数, Q3: 输出上四分位数
+ * 使用P2经验公式(线性插值),适用于小样本(n=8~15)
+ */
+static void calc_quartile(const double *a, int n, double *Q1, double *Q3)
+{
+    double tmp;
+    int i,j;
+    double *sort_a;
+
+    /* 复制数组以避免修改原数据 */
+    sort_a = (double *)malloc(sizeof(double) * n);
+    for (i = 0; i < n; i++) sort_a[i] = a[i];
+
+    /* 冒泡排序(样本量小,简单高效) */
+    for (i = 0; i < n - 1; i++) {
+        for (j = 0; j < n - i - 1; j++) {
+            if (sort_a[j] > sort_a[j + 1]) {
+                tmp = sort_a[j];
+                sort_a[j] = sort_a[j + 1];
+                sort_a[j + 1] = tmp;
+            }
+        }
+    }
+
+    /* P2经验公式: 位置 = (序号+1) * p, 其中p=0.25(Q1)或0.75(Q3)
+     * 使用线性插值: Qp = a[L] + p * (a[L+1] - a[L]), L=floor((n+1)*p)-1
+     * 当(n+1)*p不为整数时取最近整数位置的线性插值 */
+    {
+        double pos1, pos3;
+        int idx1_lo, idx1_hi;
+        double frac1, frac3;
+
+        /* Q1位置: (n+1)*0.25 = 0.25n+0.25 */
+        pos1 = 0.25 * (n + 1.0);
+        idx1_lo = (int)pos1 - 1;      /* floor - 1 */
+        frac1 = pos1 - (double)(idx1_lo + 1); /* 小数部分 */
+
+        /* Q3位置: (n+1)*0.75 = 0.75n+0.75 */
+        pos3 = 0.75 * (n + 1.0);
+        idx1_hi = (int)pos3 - 1;
+        frac3 = pos3 - (double)(idx1_hi + 1);
+
+        /* 边界保护 */
+        if (idx1_lo < 0) { idx1_lo = 0; frac1 = 0.0; }
+        if (idx1_lo >= n - 1) { idx1_lo = n - 2; frac1 = 1.0; }
+        if (idx1_hi < 0) { idx1_hi = 0; frac3 = 0.0; }
+        if (idx1_hi >= n - 1) { idx1_hi = n - 2; frac3 = 1.0; }
+
+        *Q1 = sort_a[idx1_lo] + frac1 * (sort_a[idx1_lo + 1] - sort_a[idx1_lo]);
+        *Q3 = sort_a[idx1_hi] + frac3 * (sort_a[idx1_hi + 1] - sort_a[idx1_hi]);
+    }
+
+    free(sort_a);
+}
+
+/* 基于四分位统计的自适应IGG-III阈值计算
+ * abs_rnorm: 绝对标准化残差数组(不含约束行)
+ * n_obs: 有效观测个数
+ * k0: 输出下阈值, k1: 输出上阈值
+ */
+static void calc_adaptive_igg_params(const double *abs_rnorm, int n_obs,
+                                     double *k0, double *k1)
+{
+    double Q1, Q3, M;
+
+    /* Step 1: 计算四分位数 */
+    calc_quartile(abs_rnorm, n_obs, &Q1, &Q3);
+
+    /* Step 2: 计算IQR */
+    M = Q3 - Q1;
+
+    /* Step 3: 数值稳定性保护: IQR过小时使用默认值 */
+    if (M < IGG_M_MIN) M = IGG_M_MIN;
+
+    /* Step 4: 自适应阈值公式(严格按用户给定逻辑)
+     * k0 = min(Q1, Q3)
+     * k1 = min(fabs(Q1 - 3*M), fabs(Q3 + 3*M)) */
+    *k0 = (Q1 < Q3) ? Q1 : Q3;
+    *k1 = fabs(Q1 - 3.0 * M);
+    if (fabs(Q3 + 3.0 * M) < *k1) *k1 = fabs(Q3 + 3.0 * M);
+
+    /* Step 5: k1保护: 确保k1>k0避免区间失效 */
+    if (*k1 <= *k0) *k1 = *k0 + IGG_K1_MIN;
+
+    trace(3,"estpos  : adaptive IGG k0=%.3f k1=%.3f Q1=%.3f Q3=%.3f M=%.3f\n",
+          *k0, *k1, Q1, Q3, M);
+}
+// ===== Adaptive IGG-III END =====
 // estimate receiver position ------------------------------------------------*/
 static int estpos(const obsd_t *obs, int n, const double *rs, const double *dts,
                   const double *vare, const int *svh, const nav_t *nav,
@@ -671,10 +767,10 @@ static int estpos(const obsd_t *obs, int n, const double *rs, const double *dts,
                   int *vsat, double *resp, char *msg)
 {
     double x[NX]={0},dx[NX],Q[NX*NX],*v,*H,*var,sig;
-// ===== IGG-III START =====
-    double igg_w,r_norm;
+// ===== Adaptive IGG-III START =====
+    double igg_w;
     int use_igg;
-// ===== IGG-III END =====
+// ===== Adaptive IGG-III END =====
     int i,j,k,info,stat,nv,ns,nf;
     
     /* 确定要处理的频率数量 (与rescode中逻辑一致) */
@@ -708,44 +804,65 @@ static int estpos(const obsd_t *obs, int n, const double *rs, const double *dts,
         use_igg=(i>=1&&opt->posopt[POSOPT_IGG3]);
 
         if (use_igg) {
-// ===== IGG-III FIX START =====
-            /* ---- IGG-III: 叠加式鲁棒加权 ----
-             * 第一步: 对所有观测计算标准化残差和IGG权因子(不修改v和H)
-             * 第二步: 统一应用加权缩放(一次性修改v和H)
-             */
-            for (j=0;j<nv;j++) {
-                /* ---- 约束行: var很小,仅做SNR归一化,不进行IGG处理 ---- */
-                if (var[j]<1e-6) {
-                    sig=sqrt(var[j]);
-                    v[j]/=sig;
-                    for (k=0;k<NX;k++) H[k+j*NX]/=sig;
-                    continue;
+// ===== Adaptive IGG-III START =====
+// 经典IGG-III: 两阶段处理
+// 阶段一: 对所有有效观测计算标准化残差和自适应阈值
+// 阶段二: 应用经典IGG-III加权缩放
+// ============================================================
+            {
+                int n_obs = 0;
+                double k0, k1;
+                /* 临时数组存放绝对标准化残差(不含约束行) */
+                double abs_r[MAXOBS * NFREQ + NEXOBS];
+
+                /* ---- 阶段一: 遍历所有观测,计算标准化残差 ---- */
+                for (j = 0; j < nv; j++) {
+                    if (var[j] < 1e-6) continue;              /* 约束行不参与IGG */
+                    double v0 = v[j];
+                    double sig = sqrt(var[j]);
+                    abs_r[n_obs++] = fabs(v0 / sig);         /* 绝对标准化残差存入数组 */
                 }
 
-                /* ---- 第一步: 保存原始残差,计算标准化残差和IGG权因子 ---- */
-                double v0=v[j];             /* 保存原始残差(用于标准化,不被后续修改污染) */
-                sig=sqrt(var[j]);
-                r_norm=v0/sig;              /* 标准化残差 = 原始残差/σ */
-                igg_w=calc_igg_weight(r_norm);
-
-                /* ---- 权重下限保护 ---- */
-                if (igg_w<IGG_WMIN) igg_w=IGG_WMIN;
-
-                /* ---- 粗差处理: 强制降权到下限(不破坏法方程结构) ---- */
-                if (fabs(r_norm)>IGG_REJ_THR) {
-                    trace(3,"estpos  : iter=%d obs=%d downweighted r_norm=%.2f\n",i,j,r_norm);
-                    igg_w=IGG_WMIN;         /* 方案1: 降权到下限,符合IGG渐进淘汰思想 */
+                /* 有效观测不足2个时,退化为仅SNR权 */
+                if (n_obs < 2) {
+                    for (j = 0; j < nv; j++) {
+                        sig = sqrt(var[j]);
+                        v[j] /= sig;
+                        for (k = 0; k < NX; k++) H[k + j * NX] /= sig;
+                    }
                 }
+                else {
+                    /* 计算自适应阈值(k0, k1) */
+                    calc_adaptive_igg_params(abs_r, n_obs, &k0, &k1);
 
-                /* ---- 第二步: 统一加权缩放 ----
-                 * 叠加权: P = (1/var) * igg_w
-                 * 等价于: v/=sig*sqrt(w), H/=sig*sqrt(w)
-                 * 保持了原有的SNR随机模型 */
-                double scale=sig*sqrt(igg_w);
-                v[j]=v0/scale;
-                for (k=0;k<NX;k++) H[k+j*NX]/=scale;
+                    /* ---- 阶段二: 应用经典IGG-III加权缩放 ---- */
+                    for (j = 0; j < nv; j++) {
+                        if (var[j] < 1e-6) {                  /* 约束行: 仅SNR归一化 */
+                            sig = sqrt(var[j]);
+                            v[j] /= sig;
+                            for (k = 0; k < NX; k++) H[k + j * NX] /= sig;
+                            continue;
+                        }
+
+                        /* 计算标准化残差和IGG权因子 */
+                        double v0 = v[j];
+                        sig = sqrt(var[j]);
+                        double a = fabs(v0 / sig);           /* 绝对标准化残差 */
+                        igg_w = calc_classic_igg_weight(a, k0, k1);
+
+                        /* 权重下限保护 */
+                        if (igg_w < IGG_WMIN) igg_w = IGG_WMIN;
+
+                        /* 统一加权缩放: P = (1/var) * igg_w
+                         * 等价于: v/=sig*sqrt(w), H/=sig*sqrt(w)
+                         * 保持了原有的SNR随机模型 */
+                        double scale = sig * sqrt(igg_w);
+                        v[j] = v0 / scale;
+                        for (k = 0; k < NX; k++) H[k + j * NX] /= scale;
+                    }
+                }
             }
-// ===== IGG-III FIX END =====
+// ===== Adaptive IGG-III END =====
         }
         else {
             /* 仅SNR随机模型权(原有逻辑) */
