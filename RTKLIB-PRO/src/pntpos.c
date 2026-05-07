@@ -72,6 +72,7 @@
 // 自适应IGG-III抗差估计参数
 #define IGG_WMIN     0.05        /* IGG权重下限(避免矩阵病态和秩亏) */
 #define IGG_M_MIN    0.5         /* IQR最小值保护(卫星数少时数值稳定) */
+#define IGG_K0_MIN   1.5         /* k0最小值保护 */
 #define IGG_K1_MIN   1.0         /* k1-k0最小差值保护 */
 // ===== Adaptive IGG-III END =====
 
@@ -754,6 +755,7 @@ static void calc_adaptive_igg_params(const double *abs_rnorm, int n_obs,
     if (fabs(Q3 + 3.0 * M) < *k1) *k1 = fabs(Q3 + 3.0 * M);
 
     /* Step 5: k1保护: 确保k1>k0避免区间失效 */
+	if (*k0 < IGG_K0_MIN) *k0 = IGG_K0_MIN;
     if (*k1 <= *k0) *k1 = *k0 + IGG_K1_MIN;
 
     trace(3,"estpos  : adaptive IGG k0=%.3f k1=%.3f Q1=%.3f Q3=%.3f M=%.3f\n",
