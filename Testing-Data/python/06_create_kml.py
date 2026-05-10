@@ -39,9 +39,9 @@ ALTITUDE_MODE = 'clampToGround'
 #   绿色   ff00ff00   黄色   ff00ffff
 #   紫色   ff7f00ff   橙色   ff00a0ff
 SOL_ALGOS = [
-    ('SPP-BRDC', 'ffff0000', 5),   # 蓝色 - spp-brdc(baseline)
-    ('SPP-HFUC', 'ff00ff00', 4),   # 绿色 - spp-uduc
-    ('SPP-HFUC-RM',      'ff00a0ff', 6),  # 橙色, 粗, 不透明(底层)
+    ('SPP-BRDC',        'ffb4771f', 5),  # 蓝色 - SPP 单站基准
+    ('SPP-HFUC',        'ff2ca02c', 4),  # 绿色 - SPP+UDUC
+    ('SPP-HFUC-RM',     'ff0e7fff', 4),  # 橙色 - SPP+UDUC+RM
     # ('SPP-HFUC-RM-IGG3', 'ffffff00', 2),  # 青色, 细, 半透明(顶层)
 ]
 
