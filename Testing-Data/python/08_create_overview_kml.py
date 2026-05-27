@@ -23,12 +23,12 @@ PHONES = ['mi8', 'pixel6pro', 'pixel7pro', 's20ultra', 's21ultra', 's22ultra']
 # 横向偏移：对轨迹整体平移一个小角度量，让同路线的多条轨迹在2D平铺显示
 # 1度纬度 ≈ 111km，0.0001度 ≈ 11m，向北偏移
 PHONE_COLORS = {
-    'mi8':        {'color': 'ff1966ff', 'offset': 0.00000},    # 橙红色
-    'pixel6pro':  {'color': 'ff00cc47', 'offset': 0.00015},    # 绿色，向北 +17m
-    'pixel7pro':  {'color': 'ff0080ff', 'offset': -0.00015},   # 蓝色，向南 -17m
-    's20ultra':  {'color': 'ff00e5cc', 'offset': 0.00030},    # 青色，向北 +33m
-    's21ultra':  {'color': 'ffe06619', 'offset': -0.00030},    # 橙黄色，向南 -33m
-    's22ultra':  {'color': 'ffcc00ff', 'offset': 0.00045},    # 紫色，向北 +50m
+    'mi8':        {'color': 'ff0000ff', 'offset': 0.00000},     # 鲜艳红
+    'pixel6pro':  {'color': 'ffff8000', 'offset': 0.00015},     # 鲜艳橙色，向北 +17m
+    'pixel7pro':  {'color': 'ffffd700', 'offset': -0.00015},    # 亮黄色（金色），向南 -17m
+    's20ultra':   {'color': 'ffff00ff', 'offset': 0.00030},     # 亮紫色，向北 +33m
+    's21ultra':   {'color': 'ffff1493', 'offset': -0.00030},    # 亮玫红，向南 -33m
+    's22ultra':   {'color': 'ffff69b4', 'offset': 0.00045},     # 粉色，向北 +50m
 }
 PHONE_LINE_WIDTH = 3.5
 
