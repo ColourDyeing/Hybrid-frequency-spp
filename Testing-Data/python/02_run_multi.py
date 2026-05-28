@@ -16,12 +16,12 @@ import io
 
 # 设置输入数据集的位置，以及解算结果文件
 DATA_SET = 'train'       # 选择数据文件夹
-SOL_TAG = 'SPP-HFUC-RM-IGG3'       # 解算结果文件标签
+SOL_TAG = 'SPP-SF'       # 解算结果文件标签
 datapath = '../data/'    # 相对python脚本的路径
 
 # 设置二进制文件和配置文件, 相对python脚本的路径
-# binpath_rtklib  = "../rtklib/rnx2rtkp-hfuc-rm-igg3.exe"
-binpath_rtklib = "D:/Desktop/RTKLIB-VS/Graduation/RTKLIB-PRO/app/consapp/rnx2rtkp/msc/Debug/rnx2rtkp.exe"   
+binpath_rtklib  = "../rtklib/rnx2rtkp-sf.exe"
+# binpath_rtklib = "D:/Desktop/RTKLIB-VS/Graduation/RTKLIB-PRO/app/consapp/rnx2rtkp/msc/Debug/rnx2rtkp.exe"   
 cfgfile_rtklib = "../config/Hybrid-frequency-spp.conf"
 
 # 设置解算选项
@@ -45,7 +45,7 @@ biafiles = '*.BIA'                        # DCB/BIA文件, 支持WUM等格式
 # 将相对路径改为绝对路径
 SCRIPT_DIR = dirname(abspath(__file__))     # 获取当前脚本所在目录
 datadir = abspath(join(SCRIPT_DIR, datapath, DATA_SET))
-# binpath_rtklib = abspath(join(SCRIPT_DIR, binpath_rtklib))
+binpath_rtklib = abspath(join(SCRIPT_DIR, binpath_rtklib))
 cfgfile_rtklib = abspath(join(SCRIPT_DIR, cfgfile_rtklib))
 
 # 解决Windows控制台中文编码问题
